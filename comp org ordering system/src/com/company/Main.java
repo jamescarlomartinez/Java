@@ -395,7 +395,7 @@ public class Main {
             System.out.println("        Enjoy, "+customer);
             System.out.println("     ------------------------");
         }
-        
+
         System.out.println("     -----------------------------");
         System.out.println("     |  Thank you for coming! ;)   |");
         System.out.println("     -----------------------------");
