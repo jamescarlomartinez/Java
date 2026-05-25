@@ -46,13 +46,28 @@
     .app-header {
       background: linear-gradient(160deg, #1b4332 0%, #2d6a4f 60%, #1b4332 100%);
       border-bottom: 3px solid var(--accent);
-      padding: 18px 16px 14px; text-align: center;
+      padding: 12px 16px 10px; text-align: center;
       position: sticky; top: 0; z-index: 200;
       box-shadow: 0 3px 16px rgba(0,0,0,.5);
     }
-    .header-logo { font-size: 2rem; line-height: 1; margin-bottom: 4px; }
-    .header-title { font-size: 1.25rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; }
-    .header-subtitle { font-size: 0.72rem; color: var(--primary-light); letter-spacing: 0.5px; margin-top: 2px; }
+    .app-logo-wrap {
+      display: inline-block;
+      background: #fff;
+      border-radius: 10px;
+      padding: 5px 14px 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.35);
+      line-height: 0;
+    }
+    .app-logo-img {
+      height: 56px;
+      width: auto;
+      display: block;
+    }
+    /* fallback shown only when logo.png is missing */
+    .app-logo-fallback { display: none; }
+    .app-logo-fallback .header-logo { font-size: 2rem; line-height: 1; margin-bottom: 4px; }
+    .app-logo-fallback .header-title { font-size: 1.25rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; }
+    .app-logo-fallback .header-subtitle { font-size: 0.72rem; color: var(--primary-light); letter-spacing: 0.5px; margin-top: 2px; }
 
     /* ── CONTAINER ── */
     .container { max-width: 620px; margin: 0 auto; padding: 12px 12px 0; }
@@ -269,9 +284,15 @@
 <body>
 
 <header class="app-header">
-  <div class="header-logo">🏓</div>
-  <div class="header-title">Pickleball Game Rotation</div>
-  <div class="header-subtitle">by James Martinez</div>
+  <div class="app-logo-wrap">
+    <img class="app-logo-img" src="./logo.png" alt="Pickleball Game Rotation by James Martinez"
+      onerror="this.closest('.app-logo-wrap').style.display='none';document.getElementById('logoFallback').style.display='block'">
+  </div>
+  <div class="app-logo-fallback" id="logoFallback">
+    <div class="header-logo">🏓</div>
+    <div class="header-title">Pickleball Game Rotation</div>
+    <div class="header-subtitle">by James Martinez</div>
+  </div>
 </header>
 
 <div class="container">
