@@ -24,7 +24,6 @@
       --primary-light: #6dcfa0;
       --primary-dark: #1b4332;
       --accent: #f4a261;
-      --accent2: #e76f51;
       --text: #d8f3dc;
       --text-dim: #8ecfaa;
       --text-muted: #4d8a6a;
@@ -39,45 +38,33 @@
     html { font-size: 16px; }
     body {
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      padding-bottom: 48px;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; padding-bottom: 48px;
     }
 
     /* ── HEADER ── */
     .app-header {
       background: linear-gradient(160deg, #1b4332 0%, #2d6a4f 60%, #1b4332 100%);
       border-bottom: 3px solid var(--accent);
-      padding: 18px 16px 14px;
-      text-align: center;
+      padding: 18px 16px 14px; text-align: center;
       position: sticky; top: 0; z-index: 200;
       box-shadow: 0 3px 16px rgba(0,0,0,.5);
     }
     .header-logo { font-size: 2rem; line-height: 1; margin-bottom: 4px; }
-    .header-title {
-      font-size: 1.25rem; font-weight: 900; letter-spacing: 1.5px;
-      text-transform: uppercase; color: #fff;
-    }
+    .header-title { font-size: 1.25rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; }
     .header-subtitle { font-size: 0.72rem; color: var(--primary-light); letter-spacing: 0.5px; margin-top: 2px; }
 
     /* ── CONTAINER ── */
     .container { max-width: 620px; margin: 0 auto; padding: 12px 12px 0; }
 
     /* ── CARD ── */
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 16px;
-      margin-bottom: 12px;
-    }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
     .card-title {
-      font-size: 0.8rem; font-weight: 800;
-      text-transform: uppercase; letter-spacing: 1.2px;
+      font-size: 0.8rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px;
       color: var(--primary-light); margin-bottom: 12px;
-      display: flex; align-items: center; gap: 6px;
+      display: flex; align-items: center; justify-content: space-between; gap: 6px;
     }
+    .card-title-left { display: flex; align-items: center; gap: 6px; }
 
     /* ── INPUT ROW ── */
     .input-row { display: flex; gap: 8px; }
@@ -106,27 +93,20 @@
     .btn-reset    { background: #263a30; color: var(--text-dim); border: 1px solid var(--border); }
     .btn-sm       { padding: 7px 13px; font-size: 0.8rem; border-radius: 8px; }
     .btn-block    { width: 100%; padding: 15px; font-size: 1rem; border-radius: 12px; }
-    .btn:disabled { opacity: .4; pointer-events: none; }
 
     /* ── PLAYER LIST ── */
-    .player-list {
-      margin-top: 10px; max-height: 230px;
-      overflow-y: auto; -webkit-overflow-scrolling: touch;
-    }
+    .player-list { margin-top: 10px; max-height: 230px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .player-list::-webkit-scrollbar { width: 3px; }
-    .player-list::-webkit-scrollbar-track { background: transparent; }
     .player-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     .player-item {
       display: flex; align-items: center; justify-content: space-between;
       padding: 10px 12px; background: var(--bg);
-      border: 1px solid var(--border); border-radius: 9px; margin-bottom: 6px;
-      gap: 8px;
+      border: 1px solid var(--border); border-radius: 9px; margin-bottom: 6px; gap: 8px;
     }
+    .player-item.locked { opacity: .6; }
     .player-name { font-size: 0.95rem; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .games-badge {
-      font-size: 0.68rem; background: var(--primary); color: #fff;
-      padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0;
-    }
+    .games-badge { font-size: 0.68rem; background: var(--primary); color: #fff; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+    .locked-badge { font-size: 0.68rem; background: #3a3060; color: #a090ff; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; border: 1px solid #5040a0; }
     .empty-hint { text-align: center; color: var(--text-muted); font-size: 0.88rem; padding: 20px 0; }
 
     /* ── COURT SELECTOR ── */
@@ -143,18 +123,12 @@
 
     /* ── STATS BAR ── */
     .stats-row { display: flex; gap: 8px; margin-top: 14px; }
-    .stat-cell {
-      flex: 1; background: var(--bg); border: 1px solid var(--border);
-      border-radius: 10px; padding: 11px 8px; text-align: center;
-    }
+    .stat-cell { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 11px 8px; text-align: center; }
     .stat-num { font-size: 1.55rem; font-weight: 900; color: var(--primary-light); line-height: 1; }
     .stat-lbl { font-size: 0.65rem; color: var(--text-muted); margin-top: 3px; text-transform: uppercase; letter-spacing: .5px; }
 
     /* ── MESSAGE BOX ── */
-    .msg-box {
-      border-radius: 10px; padding: 12px 15px; font-size: 0.9rem; font-weight: 600;
-      margin-bottom: 12px; display: none; border: 1px solid;
-    }
+    .msg-box { border-radius: 10px; padding: 12px 15px; font-size: 0.9rem; font-weight: 600; margin-bottom: 12px; display: none; border: 1px solid; }
     .msg-box.warning { display: block; background: rgba(244,162,97,.15); border-color: var(--warn); color: var(--warn); }
     .msg-box.error   { display: block; background: rgba(230,57,70,.15); border-color: var(--danger); color: #ff9090; }
     .msg-box.success { display: block; background: rgba(82,183,136,.15); border-color: var(--info); color: var(--info); }
@@ -163,22 +137,8 @@
     /* ── ACTION BUTTONS ── */
     .action-row { display: flex; gap: 9px; margin-bottom: 12px; }
 
-    /* ── ROUND DISPLAY ── */
-    .no-round { text-align: center; padding: 32px 16px; color: var(--text-muted); }
-    .no-round-icon { font-size: 3.5rem; margin-bottom: 10px; }
-    .no-round p { font-size: 0.95rem; line-height: 1.6; }
-    .no-round strong { color: var(--accent); }
-
-    .round-header { text-align: center; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
-    .round-lbl { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
-    .round-num { font-size: 2rem; font-weight: 900; color: var(--accent); line-height: 1.1; }
-
     /* ── COURT CARDS ── */
-    .court-card {
-      border-radius: 13px; padding: 14px; margin-bottom: 10px;
-      border: 1px solid; animation: fadeUp .25s ease;
-    }
-    @keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    .court-card { border-radius: 13px; padding: 14px; margin-bottom: 10px; border: 1px solid; }
     .court-card-1 { background: #122b20; border-color: #2a6040; }
     .court-card-2 { background: #122040; border-color: #2a4a80; }
     .court-card-3 { background: #2a1a08; border-color: #7a4a10; }
@@ -186,11 +146,12 @@
     .court-card-5 { background: #0f2a30; border-color: #1a6878; }
     .court-card-6 { background: #2a0f18; border-color: #782030; }
 
-    .court-name {
-      font-size: 0.9rem; font-weight: 800; text-transform: uppercase;
-      letter-spacing: 1px; color: #fff; margin-bottom: 12px;
-      display: flex; align-items: center; gap: 6px;
-    }
+    /* status-specific borders */
+    .court-card.is-playing { box-shadow: 0 0 0 2px rgba(82,183,136,.35); }
+    .court-card.is-done    { box-shadow: 0 0 0 2px rgba(74,138,240,.25); }
+
+    .court-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .court-name { font-size: 0.9rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #fff; display: flex; align-items: center; gap: 6px; }
     .court-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .dot-1 { background: #3aaf6a; }
     .dot-2 { background: #4a8af0; }
@@ -199,77 +160,85 @@
     .dot-5 { background: #20b8d8; }
     .dot-6 { background: #f04060; }
 
+    /* Status badges */
+    .status-badge { font-size: 0.68rem; font-weight: 800; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: .5px; flex-shrink: 0; }
+    .status-empty   { background: rgba(255,255,255,.07); color: var(--text-muted); }
+    .status-playing { background: rgba(82,183,136,.18); color: #6dffb0; border: 1px solid rgba(82,183,136,.5); }
+    .status-done    { background: rgba(74,138,240,.18); color: #90b8ff; border: 1px solid rgba(74,138,240,.5); }
+
+    /* Pulsing dot on playing */
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .status-playing { animation: pulse 1.8s ease-in-out infinite; }
+
+    /* Teams */
     .teams-row { display: flex; align-items: stretch; gap: 8px; }
-    .team-box { flex: 1; background: rgba(0,0,0,.28); border-radius: 9px; padding: 12px; }
-    .team-lbl {
-      font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
-      letter-spacing: 1px; color: var(--primary-light); margin-bottom: 8px;
-    }
+    .team-box { flex: 1; background: rgba(0,0,0,.28); border-radius: 9px; padding: 12px; border: 1px solid transparent; transition: border-color .2s, background .2s; }
+    .team-box.team-winner { background: rgba(244,162,97,.12); border-color: var(--accent); }
+    .team-lbl { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--primary-light); margin-bottom: 8px; }
+    .team-lbl.won { color: var(--accent); }
     .team-player { font-size: 0.93rem; font-weight: 600; padding: 3px 0; color: #fff; }
     .team-player span { margin-right: 5px; }
-    .vs-col {
-      display: flex; align-items: center; justify-content: center;
-      padding: 0 4px; font-weight: 900; color: var(--accent);
-      font-size: 0.85rem; flex-shrink: 0;
-    }
+    .vs-col { display: flex; align-items: center; justify-content: center; padding: 0 4px; font-weight: 900; color: var(--accent); font-size: 0.85rem; flex-shrink: 0; }
 
-    /* ── WAITING SECTION ── */
-    .waiting-card {
-      background: var(--wait-bg); border: 1px solid var(--wait-border);
-      border-radius: 13px; padding: 14px; margin-bottom: 10px;
-    }
-    .waiting-header {
-      font-size: 0.8rem; font-weight: 800; text-transform: uppercase;
-      letter-spacing: 1px; color: var(--wait-text); margin-bottom: 10px;
-    }
-    .waiting-chips { display: flex; flex-wrap: wrap; gap: 7px; }
-    .waiting-chip {
-      background: #252540; border: 1px solid var(--wait-border);
-      border-radius: 20px; padding: 7px 14px;
-      font-size: 0.88rem; font-weight: 600; color: var(--wait-text);
-    }
+    /* Court empty state */
+    .court-empty-body { text-align: center; padding: 14px 0 10px; color: var(--text-muted); font-size: 0.88rem; }
 
-    /* ── PLAYER STATS ── */
+    /* Winner section */
+    .winner-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08); }
+    .winner-lbl { font-size: 0.75rem; font-weight: 800; color: var(--accent); margin-bottom: 9px; text-transform: uppercase; letter-spacing: .5px; }
+    .winner-row { display: flex; gap: 8px; }
+    .btn-team-a, .btn-team-b {
+      flex: 1; padding: 13px 8px; border-radius: 10px;
+      font-size: 0.88rem; font-weight: 800; cursor: pointer; border: 2px solid;
+      transition: transform .1s, filter .15s;
+    }
+    .btn-team-a:active, .btn-team-b:active { transform: scale(.96); filter: brightness(.9); }
+    .btn-team-a { background: rgba(58,175,106,.15); border-color: #3aaf6a; color: #5aff90; }
+    .btn-team-b { background: rgba(74,138,240,.15); border-color: #4a8af0; color: #80b4ff; }
+
+    /* Available players */
+    .avail-card { background: var(--wait-bg); border: 1px solid var(--wait-border); border-radius: 13px; padding: 14px; margin-bottom: 12px; }
+    .avail-header { font-size: 0.8rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--wait-text); margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .avail-header .on-court-tag { background: rgba(160,144,255,.15); border: 1px solid #5040a0; color: #a090ff; padding: 2px 9px; border-radius: 12px; font-size: 0.7rem; }
+    .avail-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .avail-chip { background: #252540; border: 1px solid var(--wait-border); border-radius: 20px; padding: 7px 14px; font-size: 0.88rem; font-weight: 600; color: var(--wait-text); }
+    .no-avail { font-size: 0.88rem; color: var(--text-muted); }
+
+    /* No-courts placeholder */
+    .no-games { text-align: center; padding: 32px 16px; color: var(--text-muted); }
+    .no-games-icon { font-size: 3.5rem; margin-bottom: 10px; }
+    .no-games p { font-size: 0.95rem; line-height: 1.6; }
+    .no-games strong { color: var(--accent); }
+
+    /* History */
+    .history-toggle-row { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+    .history-item { padding: 10px 0; border-bottom: 1px solid rgba(42,90,62,.3); }
+    .history-item:last-child { border-bottom: none; }
+    .history-meta { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .history-result { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; flex-wrap: wrap; }
+    .h-winner { font-weight: 800; color: var(--accent); }
+    .h-loser  { font-weight: 500; color: var(--text-muted); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.2); }
+    .h-vs     { font-size: 0.7rem; color: var(--text-muted); }
+
+    /* Stats table */
     .stats-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-    .stats-table th {
-      text-align: left; padding: 7px 10px;
-      color: var(--text-muted); font-size: 0.72rem;
-      text-transform: uppercase; letter-spacing: .5px;
-      border-bottom: 1px solid var(--border);
-    }
+    .stats-table th { text-align: left; padding: 7px 10px; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
     .stats-table td { padding: 8px 10px; border-bottom: 1px solid rgba(42,90,62,.3); vertical-align: middle; }
     .stats-table tr:last-child td { border-bottom: none; }
     .play-bar-wrap { height: 6px; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; min-width: 40px; }
     .play-bar { height: 100%; background: var(--primary); border-radius: 3px; transition: width .4s ease; }
 
-    /* ── DIVIDER ── */
+    /* Divider */
     .divider { height: 1px; background: var(--border); margin: 12px 0; opacity: .4; }
 
-    /* ── INSTALL BANNER ── */
-    .install-banner {
-      display: none;
-      background: linear-gradient(135deg, #1b4332, #2d6a4f);
-      border: 1px solid var(--accent);
-      border-radius: 12px; padding: 14px 16px; margin-bottom: 12px;
-      align-items: center; gap: 12px;
-    }
+    /* Install banner */
+    .install-banner { display: none; background: linear-gradient(135deg, #1b4332, #2d6a4f); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; align-items: center; gap: 12px; }
     .install-banner.visible { display: flex; }
     .install-banner-text { flex: 1; font-size: 0.88rem; color: var(--text); line-height: 1.4; }
     .install-banner-text strong { color: var(--accent); }
 
-    /* ── TOAST ── */
-    .toast {
-      position: fixed; bottom: 22px; left: 50%;
-      transform: translateX(-50%) translateY(80px);
-      background: #1b4332; color: #fff;
-      padding: 12px 22px; border-radius: 24px;
-      font-size: 0.88rem; font-weight: 700;
-      box-shadow: 0 4px 20px rgba(0,0,0,.5);
-      border: 1px solid var(--primary-light);
-      transition: transform .3s cubic-bezier(.34,1.56,.64,1);
-      z-index: 1000; text-align: center; max-width: 88vw;
-      pointer-events: none;
-    }
+    /* Toast */
+    .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(80px); background: #1b4332; color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 0.88rem; font-weight: 700; box-shadow: 0 4px 20px rgba(0,0,0,.5); border: 1px solid var(--primary-light); transition: transform .3s cubic-bezier(.34,1.56,.64,1); z-index: 1000; text-align: center; max-width: 88vw; pointer-events: none; }
     .toast.show { transform: translateX(-50%) translateY(0); }
   </style>
 </head>
@@ -283,11 +252,9 @@
 
 <div class="container">
 
-  <!-- Install prompt banner -->
+  <!-- Install banner -->
   <div class="install-banner" id="installBanner">
-    <div class="install-banner-text">
-      <strong>Install App</strong><br>Add to your home screen for quick access!
-    </div>
+    <div class="install-banner-text"><strong>Install App</strong><br>Add to your home screen for quick access!</div>
     <button class="btn btn-accent btn-sm" id="installBtn">Install</button>
     <button class="btn btn-ghost btn-sm" onclick="document.getElementById('installBanner').classList.remove('visible')">✕</button>
   </div>
@@ -297,24 +264,21 @@
 
   <!-- Player Management -->
   <div class="card">
-    <div class="card-title">👥 Players</div>
+    <div class="card-title"><span class="card-title-left">👥 Players</span></div>
     <div class="input-row">
       <input class="text-input" id="playerInput" type="text"
         placeholder="Enter player name…" maxlength="30"
-        autocomplete="off" autocorrect="off" autocapitalize="words"
-        spellcheck="false">
+        autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false">
       <button class="btn btn-primary" onclick="addPlayer()">Add</button>
     </div>
     <div class="player-list" id="playerList"></div>
     <div class="divider"></div>
-    <button class="btn btn-ghost btn-sm" style="width:100%" onclick="clearAllPlayers()">
-      🗑 Clear All Players
-    </button>
+    <button class="btn btn-ghost btn-sm" style="width:100%" onclick="clearAllPlayers()">🗑 Clear All Players</button>
   </div>
 
   <!-- Court Settings -->
   <div class="card">
-    <div class="card-title">🏟️ Number of Courts</div>
+    <div class="card-title"><span class="card-title-left">🏟️ Number of Courts</span></div>
     <div class="court-selector" id="courtSelector">
       <button class="court-btn" data-n="1" onclick="setCourts(1)">1</button>
       <button class="court-btn active" data-n="2" onclick="setCourts(2)">2</button>
@@ -325,36 +289,32 @@
     </div>
     <div class="stats-row">
       <div class="stat-cell"><div class="stat-num" id="sTotal">0</div><div class="stat-lbl">Players</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sPlaying">0</div><div class="stat-lbl">Playing</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sWaiting">0</div><div class="stat-lbl">Waiting</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sCourts">0</div><div class="stat-lbl">Active Courts</div></div>
+      <div class="stat-cell"><div class="stat-num" id="sOnCourt">0</div><div class="stat-lbl">On Court</div></div>
+      <div class="stat-cell"><div class="stat-num" id="sAvail">0</div><div class="stat-lbl">Available</div></div>
+      <div class="stat-cell"><div class="stat-num" id="sActive">0</div><div class="stat-lbl">In Play</div></div>
     </div>
   </div>
 
   <!-- Action Buttons -->
   <div class="action-row">
-    <button class="btn btn-accent btn-block" style="flex:2" onclick="generateRound()">
-      ▶ Generate Next Round
-    </button>
-    <button class="btn btn-reset btn-block" style="flex:1" onclick="resetRotation()">
-      ↺ Reset
-    </button>
+    <button class="btn btn-accent btn-block" style="flex:2" onclick="fillAvailableCourts()">⚡ Fill Available Courts</button>
+    <button class="btn btn-reset btn-block" style="flex:1" onclick="resetAllCourts()">↺ Reset All</button>
   </div>
 
-  <!-- Round Display -->
-  <div id="roundDisplay"></div>
+  <!-- Available Players -->
+  <div id="availableSection"></div>
 
-  <!-- Player Stats -->
+  <!-- Courts -->
+  <div id="courtsSection"></div>
+
+  <!-- History -->
+  <div id="historySection"></div>
+
+  <!-- Stats -->
   <div class="card" id="statsCard" style="display:none">
-    <div class="card-title">📊 Play Count Stats</div>
+    <div class="card-title"><span class="card-title-left">📊 Play Count Stats</span></div>
     <table class="stats-table">
-      <thead>
-        <tr>
-          <th>Player</th>
-          <th style="text-align:center">Games</th>
-          <th></th>
-        </tr>
-      </thead>
+      <thead><tr><th>Player</th><th style="text-align:center">Games</th><th></th></tr></thead>
       <tbody id="statsBody"></tbody>
     </table>
   </div>
@@ -364,64 +324,92 @@
 <div class="toast" id="toast"></div>
 
 <script>
-/* ── STATE ── */
+/* =====================================================
+   STATE
+===================================================== */
 var S = {
-  players: [],
-  courts: 2,
-  round: 0,
-  playCounts: {},
-  currentRound: null
+  players:     [],
+  courts:      2,
+  playCounts:  {},   // name -> total games played
+  courtStates: [],   // { courtNum, status, gameNum, teamA, teamB, winner }
+  history:     []    // completed game records
 };
 
-/* ── INIT ── */
+var historyOpen = false;
+
+/* =====================================================
+   INIT
+===================================================== */
 function init() {
   loadState();
   renderPlayerList();
   syncCourtButtons();
-  updateStats();
-  renderRound();
-  renderStatsTable();
+  renderAll();
   document.getElementById('playerInput').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); addPlayer(); }
   });
 }
 
-/* ── PLAYERS ── */
+/* =====================================================
+   COURT STATES
+===================================================== */
+function initCourtStates(count) {
+  while (S.courtStates.length < count) {
+    S.courtStates.push({ courtNum: S.courtStates.length + 1, status: 'empty', gameNum: 0, teamA: [], teamB: [], winner: null });
+  }
+  S.courtStates = S.courtStates.slice(0, count);
+  S.courtStates.forEach(function(cs, i) { cs.courtNum = i + 1; });
+}
+
+function getLockedPlayers() {
+  var locked = [];
+  S.courtStates.forEach(function(cs) {
+    if (cs.status === 'playing') locked = locked.concat(cs.teamA, cs.teamB);
+  });
+  return locked;
+}
+
+function getAvailablePlayers() {
+  var locked = getLockedPlayers();
+  return S.players.filter(function(p) { return locked.indexOf(p) === -1; });
+}
+
+/* =====================================================
+   PLAYER MANAGEMENT
+===================================================== */
 function addPlayer() {
   var inp = document.getElementById('playerInput');
   var raw = inp.value.trim();
   if (!raw) { showToast('Please enter a player name.'); return; }
-  var lower = raw.toLowerCase();
-  if (S.players.some(function(p){ return p.toLowerCase() === lower; })) {
+  if (S.players.some(function(p){ return p.toLowerCase() === raw.toLowerCase(); })) {
     showToast('"' + raw + '" is already in the list.');
     return;
   }
   S.players.push(raw);
   if (S.playCounts[raw] === undefined) S.playCounts[raw] = 0;
-  inp.value = '';
-  inp.focus();
-  save(); renderPlayerList(); updateStats(); renderStatsTable(); clearMsg();
+  inp.value = ''; inp.focus();
+  save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderStatsTable(); clearMsg();
 }
 
 function removePlayer(idx) {
   var name = S.players[idx];
+  var locked = getLockedPlayers();
+  if (locked.indexOf(name) !== -1) {
+    showToast('"' + name + '" is in an active game. Record winner first.');
+    return;
+  }
   if (!confirm('Remove "' + name + '" from the list?')) return;
   S.players.splice(idx, 1);
   delete S.playCounts[name];
-  if (S.currentRound) {
-    var all = [];
-    S.currentRound.courts.forEach(function(c) { all = all.concat(c.teamA, c.teamB); });
-    all = all.concat(S.currentRound.waiting);
-    if (all.indexOf(name) !== -1) S.currentRound = null;
-  }
-  save(); renderPlayerList(); updateStats(); renderRound(); renderStatsTable();
+  save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderStatsTable();
 }
 
 function clearAllPlayers() {
   if (S.players.length === 0) { showToast('No players to clear.'); return; }
-  if (!confirm('Clear all players and reset rotation?')) return;
-  S.players = []; S.playCounts = {}; S.round = 0; S.currentRound = null;
-  save(); renderPlayerList(); updateStats(); renderRound(); renderStatsTable(); clearMsg();
+  if (!confirm('Clear all players and reset everything?')) return;
+  S.players = []; S.playCounts = {}; S.history = [];
+  initCourtStates(S.courts);
+  save(); renderPlayerList(); renderAll(); clearMsg();
 }
 
 function renderPlayerList() {
@@ -430,70 +418,138 @@ function renderPlayerList() {
     el.innerHTML = '<div class="empty-hint">No players added yet. Enter names above.</div>';
     return;
   }
+  var locked = getLockedPlayers();
   el.innerHTML = S.players.map(function(name, i) {
+    var isLocked = locked.indexOf(name) !== -1;
     var g = S.playCounts[name] || 0;
-    var badge = g > 0 ? '<span class="games-badge">' + g + ' game' + (g !== 1 ? 's' : '') + '</span>' : '';
-    return '<div class="player-item">'
+    var badge = isLocked
+      ? '<span class="locked-badge">🔒 On Court</span>'
+      : (g > 0 ? '<span class="games-badge">' + g + ' game' + (g !== 1 ? 's' : '') + '</span>' : '');
+    var removeBtn = isLocked
+      ? '<button class="btn btn-ghost btn-sm" disabled style="opacity:.3">✕</button>'
+      : '<button class="btn btn-danger btn-sm" onclick="removePlayer(' + i + ')">✕</button>';
+    return '<div class="player-item' + (isLocked ? ' locked' : '') + '">'
       + '<span class="player-name">' + (i+1) + '. ' + esc(name) + '</span>'
-      + badge
-      + '<button class="btn btn-danger btn-sm" onclick="removePlayer(' + i + ')">✕</button>'
-      + '</div>';
+      + badge + removeBtn + '</div>';
   }).join('');
 }
 
-/* ── COURTS ── */
+/* =====================================================
+   COURT SETTINGS
+===================================================== */
 function setCourts(n) {
-  S.courts = n; save(); syncCourtButtons(); updateStats();
+  if (n === S.courts) return;
+  if (n < S.courts) {
+    var removing = S.courtStates.slice(n);
+    var hasActive = removing.some(function(cs){ return cs.status === 'playing'; });
+    if (hasActive && !confirm('Reducing courts will end active games on removed courts. Continue?')) return;
+  }
+  S.courts = n;
+  initCourtStates(n);
+  save(); syncCourtButtons(); renderAll();
 }
+
 function syncCourtButtons() {
   document.querySelectorAll('.court-btn').forEach(function(btn) {
     btn.classList.toggle('active', parseInt(btn.dataset.n) === S.courts);
   });
 }
 
-/* ── STATS BAR ── */
+/* =====================================================
+   STATS BAR
+===================================================== */
 function updateStats() {
-  var total = S.players.length;
-  var raw = Math.min(S.courts * 4, total);
-  var activeCourts = Math.floor(raw / 4);
-  var playing = activeCourts * 4;
+  var total  = S.players.length;
+  var locked = getLockedPlayers().length;
+  var avail  = total - locked;
+  var active = S.courtStates.filter(function(cs){ return cs.status === 'playing'; }).length;
   document.getElementById('sTotal').textContent   = total;
-  document.getElementById('sPlaying').textContent  = playing;
-  document.getElementById('sWaiting').textContent  = Math.max(0, total - playing);
-  document.getElementById('sCourts').textContent   = activeCourts;
+  document.getElementById('sOnCourt').textContent = locked;
+  document.getElementById('sAvail').textContent   = Math.max(0, avail);
+  document.getElementById('sActive').textContent  = active;
 }
 
-/* ── ROTATION ── */
-function generateRound() {
-  clearMsg();
-  var total = S.players.length;
-  if (total < 4) { showMsg('Add at least 4 players to start.', 'warning'); return; }
-  var raw = Math.min(S.courts * 4, total);
-  var activeCourts = Math.floor(raw / 4);
-  var playing = activeCourts * 4;
-  if (activeCourts === 0) { showMsg('Need at least 4 players for 1 court.', 'warning'); return; }
-
-  var sorted = sortByCount(S.players, S.playCounts);
-  var playingGroup = sorted.slice(0, playing);
-  var waitingGroup = sorted.slice(playing);
-
-  shuffle(playingGroup);
-
-  var courts = [];
-  for (var i = 0; i < activeCourts; i++) {
-    var o = i * 4;
-    courts.push({ n: i+1, teamA: [playingGroup[o], playingGroup[o+1]], teamB: [playingGroup[o+2], playingGroup[o+3]] });
+/* =====================================================
+   ROTATION — PER COURT
+===================================================== */
+function generateForCourt(idx) {
+  var cs = S.courtStates[idx];
+  if (!cs) return;
+  if (cs.status === 'playing') {
+    showToast('Record the winner for Court ' + cs.courtNum + ' before generating a new game.');
+    return;
   }
-
-  playingGroup.forEach(function(name) { S.playCounts[name] = (S.playCounts[name] || 0) + 1; });
-  S.round++;
-  S.currentRound = { courts: courts, waiting: waitingGroup };
-
-  save(); renderRound(); renderPlayerList(); renderStatsTable(); updateStats();
-  var w = waitingGroup.length;
-  showToast('Round ' + S.round + ' ready! ' + (w > 0 ? w + ' player' + (w!==1?'s':'') + ' waiting.' : 'All on court!'));
+  var avail = getAvailablePlayers();
+  if (avail.length < 4) {
+    showMsg('Not enough available players for Court ' + cs.courtNum + '. Need 4, have ' + avail.length + '.', 'warning');
+    return;
+  }
+  assignGameToCourt(cs, avail);
+  save(); renderAll();
+  showToast('Court ' + cs.courtNum + ' — Game ' + cs.gameNum + ' started!');
 }
 
+function fillAvailableCourts() {
+  clearMsg();
+  var filled = 0;
+  S.courtStates.forEach(function(cs) {
+    if (cs.status !== 'playing') {
+      var avail = getAvailablePlayers();
+      if (avail.length >= 4) { assignGameToCourt(cs, avail); filled++; }
+    }
+  });
+  save(); renderAll();
+  if (filled === 0) {
+    showMsg('All courts are in play or not enough available players (need 4 per court).', 'warning');
+  } else {
+    showToast('Started ' + filled + ' new game' + (filled !== 1 ? 's' : '') + '!');
+  }
+}
+
+function assignGameToCourt(cs, avail) {
+  var sorted = sortByCount(avail, S.playCounts);
+  var picked = sorted.slice(0, 4);
+  shuffle(picked);
+  cs.teamA  = [picked[0], picked[1]];
+  cs.teamB  = [picked[2], picked[3]];
+  cs.status = 'playing';
+  cs.gameNum = (cs.gameNum || 0) + 1;
+  cs.winner = null;
+  picked.forEach(function(p){ S.playCounts[p] = (S.playCounts[p] || 0) + 1; });
+}
+
+function recordWinner(idx, winner) {
+  var cs = S.courtStates[idx];
+  if (!cs || cs.status !== 'playing') return;
+  cs.winner = winner;
+  cs.status = 'done';
+  var winNames = winner === 'A' ? cs.teamA : cs.teamB;
+  S.history.unshift({
+    courtNum:    cs.courtNum,
+    gameNum:     cs.gameNum,
+    teamA:       cs.teamA.slice(),
+    teamB:       cs.teamB.slice(),
+    winner:      winner,
+    winnerNames: winNames.slice(),
+    ts:          Date.now()
+  });
+  if (S.history.length > 100) S.history = S.history.slice(0, 100);
+  save(); renderAll();
+  showToast('Court ' + cs.courtNum + ' — ' + winNames.join(' & ') + ' won! 🏆');
+}
+
+function resetAllCourts() {
+  var hasActive = S.courtStates.some(function(cs){ return cs.status === 'playing'; });
+  if (!confirm((hasActive ? 'Reset all courts? Active games will be lost. ' : '') + 'Play counts and history will be cleared.')) return;
+  S.history = [];
+  initCourtStates(S.courts);
+  S.players.forEach(function(p){ S.playCounts[p] = 0; });
+  save(); renderAll(); clearMsg(); showToast('All courts reset.');
+}
+
+/* =====================================================
+   SORT / SHUFFLE
+===================================================== */
 function sortByCount(players, counts) {
   var groups = {};
   players.forEach(function(n) {
@@ -503,10 +559,9 @@ function sortByCount(players, counts) {
   });
   var keys = Object.keys(groups).map(Number).sort(function(a,b){ return a-b; });
   var result = [];
-  keys.forEach(function(k) { var g = groups[k].slice(); shuffle(g); result = result.concat(g); });
+  keys.forEach(function(k){ var g = groups[k].slice(); shuffle(g); result = result.concat(g); });
   return result;
 }
-
 function shuffle(arr) {
   for (var i = arr.length-1; i > 0; i--) {
     var j = Math.floor(Math.random()*(i+1));
@@ -514,57 +569,150 @@ function shuffle(arr) {
   }
 }
 
-function resetRotation() {
-  if (S.round === 0 && !S.currentRound) { showToast('No rotation to reset.'); return; }
-  if (!confirm('Reset rotation? Play counts will be cleared but players stay.')) return;
-  S.round = 0; S.currentRound = null;
-  S.players.forEach(function(n) { S.playCounts[n] = 0; });
-  save(); renderRound(); renderPlayerList(); renderStatsTable(); updateStats(); clearMsg(); showToast('Rotation reset.');
+/* =====================================================
+   RENDER ALL
+===================================================== */
+function renderAll() {
+  updateStats();
+  renderPlayerList();
+  renderAvailableSection();
+  renderCourtsSection();
+  renderHistorySection();
+  renderStatsTable();
 }
 
-/* ── RENDER ROUND ── */
-function renderRound() {
-  var el = document.getElementById('roundDisplay');
-  if (!S.currentRound) {
-    el.innerHTML = '<div class="no-round"><div class="no-round-icon">🏓</div>'
-      + '<p>Add players and tap<br><strong>Generate Next Round</strong> to begin!</p></div>';
-    return;
-  }
-  var cr = S.currentRound;
-  var html = '<div class="card"><div class="round-header"><div class="round-lbl">Current Round</div>'
-    + '<div class="round-num">Round ' + S.round + '</div></div>';
-
-  cr.courts.forEach(function(c, idx) {
-    var n = Math.min(idx+1, 6);
-    html += '<div class="court-card court-card-' + n + '">'
-      + '<div class="court-name"><span class="court-dot dot-' + n + '"></span>Court ' + c.n + '</div>'
-      + '<div class="teams-row">'
-      + '<div class="team-box"><div class="team-lbl">Team A</div>'
-      + '<div class="team-player"><span>🟢</span>' + esc(c.teamA[0]) + '</div>'
-      + '<div class="team-player"><span>🟢</span>' + esc(c.teamA[1]) + '</div></div>'
-      + '<div class="vs-col">VS</div>'
-      + '<div class="team-box"><div class="team-lbl">Team B</div>'
-      + '<div class="team-player"><span>🔵</span>' + esc(c.teamB[0]) + '</div>'
-      + '<div class="team-player"><span>🔵</span>' + esc(c.teamB[1]) + '</div></div>'
-      + '</div></div>';
-  });
+/* =====================================================
+   RENDER: AVAILABLE PLAYERS
+===================================================== */
+function renderAvailableSection() {
+  var el = document.getElementById('availableSection');
+  if (S.players.length === 0) { el.innerHTML = ''; return; }
+  var avail  = getAvailablePlayers();
+  var locked = getLockedPlayers();
+  var html = '<div class="avail-card"><div class="avail-header">'
+    + '✅ Available (' + avail.length + ')';
+  if (locked.length > 0) html += '<span class="on-court-tag">🔒 On Court: ' + locked.length + '</span>';
   html += '</div>';
-
-  if (cr.waiting && cr.waiting.length > 0) {
-    html += '<div class="waiting-card"><div class="waiting-header">⏳ Waiting / Resting — '
-      + cr.waiting.length + ' player' + (cr.waiting.length!==1?'s':'') + '</div>'
-      + '<div class="waiting-chips">'
-      + cr.waiting.map(function(n){ return '<div class="waiting-chip">'+esc(n)+'</div>'; }).join('')
-      + '</div></div>';
+  if (avail.length === 0) {
+    html += '<div class="no-avail">All players are currently on court.</div>';
+  } else {
+    html += '<div class="avail-chips">'
+      + avail.map(function(n){ return '<div class="avail-chip">' + esc(n) + '</div>'; }).join('')
+      + '</div>';
   }
+  html += '</div>';
   el.innerHTML = html;
 }
 
-/* ── STATS TABLE ── */
+/* =====================================================
+   RENDER: COURTS SECTION
+===================================================== */
+function renderCourtsSection() {
+  var el = document.getElementById('courtsSection');
+  if (S.players.length === 0) {
+    el.innerHTML = '<div class="no-games"><div class="no-games-icon">🏓</div>'
+      + '<p>Add players, then tap<br><strong>⚡ Fill Available Courts</strong> to start!</p></div>';
+    return;
+  }
+  el.innerHTML = S.courtStates.map(function(cs, idx){ return renderCourtCard(cs, idx); }).join('');
+}
+
+function renderCourtCard(cs, idx) {
+  var n  = Math.min(cs.courtNum, 6);
+  var st = cs.status;
+
+  var header = '<div class="court-card-header">'
+    + '<div class="court-name"><span class="court-dot dot-' + n + '"></span>Court ' + cs.courtNum + '</div>'
+    + statusBadgeHtml(st)
+    + '</div>';
+
+  var body = '';
+  if (st === 'empty') {
+    body = '<div class="court-empty-body">No game assigned yet.</div>'
+      + '<button class="btn btn-primary btn-block" onclick="generateForCourt(' + idx + ')">▶ Generate Next Game</button>';
+  } else if (st === 'playing') {
+    body = teamsHtml(cs, false)
+      + '<div class="winner-section">'
+      + '<div class="winner-lbl">⚡ Who won?</div>'
+      + '<div class="winner-row">'
+      + '<button class="btn-team-a" onclick="recordWinner(' + idx + ',\'A\')">🟢 Team A Won</button>'
+      + '<button class="btn-team-b" onclick="recordWinner(' + idx + ',\'B\')">🔵 Team B Won</button>'
+      + '</div></div>';
+  } else if (st === 'done') {
+    body = teamsHtml(cs, true)
+      + '<button class="btn btn-accent btn-block" style="margin-top:12px" onclick="generateForCourt(' + idx + ')">▶ Generate Next Game</button>';
+  }
+
+  var extra = st === 'playing' ? ' is-playing' : (st === 'done' ? ' is-done' : '');
+  return '<div class="court-card court-card-' + n + extra + '">' + header + body + '</div>';
+}
+
+function statusBadgeHtml(st) {
+  if (st === 'empty')   return '<span class="status-badge status-empty">Empty</span>';
+  if (st === 'playing') return '<span class="status-badge status-playing">● In Progress</span>';
+  if (st === 'done')    return '<span class="status-badge status-done">✓ Done</span>';
+  return '';
+}
+
+function teamsHtml(cs, showWinner) {
+  var aWon = showWinner && cs.winner === 'A';
+  var bWon = showWinner && cs.winner === 'B';
+  return '<div class="teams-row">'
+    + '<div class="team-box' + (aWon ? ' team-winner' : '') + '">'
+    + '<div class="team-lbl' + (aWon ? ' won' : '') + '">Team A' + (aWon ? ' 🏆' : '') + '</div>'
+    + '<div class="team-player"><span>🟢</span>' + esc(cs.teamA[0]) + '</div>'
+    + '<div class="team-player"><span>🟢</span>' + esc(cs.teamA[1]) + '</div>'
+    + '</div>'
+    + '<div class="vs-col">VS</div>'
+    + '<div class="team-box' + (bWon ? ' team-winner' : '') + '">'
+    + '<div class="team-lbl' + (bWon ? ' won' : '') + '">Team B' + (bWon ? ' 🏆' : '') + '</div>'
+    + '<div class="team-player"><span>🔵</span>' + esc(cs.teamB[0]) + '</div>'
+    + '<div class="team-player"><span>🔵</span>' + esc(cs.teamB[1]) + '</div>'
+    + '</div></div>';
+}
+
+/* =====================================================
+   RENDER: HISTORY
+===================================================== */
+function toggleHistory() {
+  historyOpen = !historyOpen;
+  renderHistorySection();
+}
+
+function renderHistorySection() {
+  var el = document.getElementById('historySection');
+  if (S.history.length === 0) { el.innerHTML = ''; return; }
+  var html = '<div class="card">'
+    + '<div class="card-title history-toggle-row" onclick="toggleHistory()">'
+    + '<span class="card-title-left">🏆 Game History (' + S.history.length + ')</span>'
+    + '<span>' + (historyOpen ? '▲ Hide' : '▼ Show') + '</span>'
+    + '</div>';
+  if (historyOpen) {
+    S.history.slice(0, 30).forEach(function(h) {
+      var d = new Date(h.ts);
+      var time = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      var date = d.toLocaleDateString([], {month:'short', day:'numeric'});
+      html += '<div class="history-item">'
+        + '<div class="history-meta">Court ' + h.courtNum + ' · Game ' + h.gameNum + ' · ' + date + ' ' + time + '</div>'
+        + '<div class="history-result">'
+        + '<span class="' + (h.winner === 'A' ? 'h-winner' : 'h-loser') + '">🟢 ' + esc(h.teamA.join(' & ')) + '</span>'
+        + '<span class="h-vs">vs</span>'
+        + '<span class="' + (h.winner === 'B' ? 'h-winner' : 'h-loser') + '">🔵 ' + esc(h.teamB.join(' & ')) + '</span>'
+        + '</div></div>';
+    });
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+/* =====================================================
+   RENDER: STATS TABLE
+===================================================== */
 function renderStatsTable() {
   var card = document.getElementById('statsCard');
   var body = document.getElementById('statsBody');
-  if (S.players.length === 0 || S.round === 0) { card.style.display = 'none'; return; }
+  var hasGames = S.players.some(function(p){ return (S.playCounts[p] || 0) > 0; });
+  if (S.players.length === 0 || !hasGames) { card.style.display = 'none'; return; }
   card.style.display = 'block';
   var max = S.players.reduce(function(m,p){ return Math.max(m, S.playCounts[p]||0); }, 1);
   var sorted = S.players.slice().sort(function(a,b){ return (S.playCounts[b]||0)-(S.playCounts[a]||0); });
@@ -578,16 +726,11 @@ function renderStatsTable() {
   }).join('');
 }
 
-/* ── MESSAGES ── */
-function showMsg(text, type) {
-  var el = document.getElementById('msgBox');
-  el.className = 'msg-box ' + (type || 'info');
-  el.textContent = text;
-}
-function clearMsg() {
-  var el = document.getElementById('msgBox');
-  el.className = 'msg-box'; el.textContent = '';
-}
+/* =====================================================
+   MESSAGES & TOAST
+===================================================== */
+function showMsg(text, type) { var el = document.getElementById('msgBox'); el.className = 'msg-box ' + (type||'info'); el.textContent = text; }
+function clearMsg()           { var el = document.getElementById('msgBox'); el.className = 'msg-box'; el.textContent = ''; }
 var toastTimer;
 function showToast(msg) {
   var t = document.getElementById('toast');
@@ -596,56 +739,58 @@ function showToast(msg) {
   toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3200);
 }
 
-/* ── LOCAL STORAGE ── */
-var KEY = 'pickleballRotation_v1';
-function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {}
-}
+/* =====================================================
+   LOCAL STORAGE
+===================================================== */
+var KEY = 'pickleballRotation_v2';
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
 function loadState() {
   try {
     var raw = localStorage.getItem(KEY);
-    if (!raw) return;
+    if (!raw) { initCourtStates(S.courts); return; }
     var p = JSON.parse(raw);
-    if (Array.isArray(p.players))                S.players      = p.players;
-    if (typeof p.courts === 'number')            S.courts       = p.courts;
-    if (typeof p.round === 'number')             S.round        = p.round;
-    if (p.playCounts && typeof p.playCounts === 'object') S.playCounts = p.playCounts;
-    if (p.currentRound)                          S.currentRound = p.currentRound;
-    S.players.forEach(function(n){ if (S.playCounts[n]===undefined) S.playCounts[n]=0; });
-  } catch(e) {}
+    if (Array.isArray(p.players))                             S.players     = p.players;
+    if (typeof p.courts === 'number')                         S.courts      = p.courts;
+    if (p.playCounts && typeof p.playCounts === 'object')     S.playCounts  = p.playCounts;
+    if (Array.isArray(p.courtStates))                         S.courtStates = p.courtStates;
+    if (Array.isArray(p.history))                             S.history     = p.history;
+    S.players.forEach(function(n){ if (S.playCounts[n] === undefined) S.playCounts[n] = 0; });
+    initCourtStates(S.courts);
+  } catch(e) { initCourtStates(S.courts); }
 }
 
-/* ── HELPER ── */
+/* =====================================================
+   HELPER
+===================================================== */
 function esc(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-/* ── PWA INSTALL PROMPT ── */
+/* =====================================================
+   PWA INSTALL PROMPT
+===================================================== */
 var deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', function(e) {
-  e.preventDefault();
-  deferredPrompt = e;
+  e.preventDefault(); deferredPrompt = e;
   document.getElementById('installBanner').classList.add('visible');
 });
 document.getElementById('installBtn').addEventListener('click', function() {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
-  deferredPrompt.userChoice.then(function() {
-    deferredPrompt = null;
-    document.getElementById('installBanner').classList.remove('visible');
-  });
+  deferredPrompt.userChoice.then(function(){ deferredPrompt = null; document.getElementById('installBanner').classList.remove('visible'); });
 });
 window.addEventListener('appinstalled', function() {
   document.getElementById('installBanner').classList.remove('visible');
   showToast('App installed! Find it on your home screen.');
 });
 
-/* ── SERVICE WORKER ── */
+/* =====================================================
+   SERVICE WORKER
+===================================================== */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
-    navigator.serviceWorker.register('./sw.js')
-      .catch(function(e) { console.warn('SW failed:', e); });
+    navigator.serviceWorker.register('./sw.js').catch(function(e){ console.warn('SW failed:', e); });
   });
 }
 
