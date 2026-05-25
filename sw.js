@@ -1,10 +1,11 @@
-const CACHE = 'pickleball-v3';
+const CACHE = 'pickleball-v4';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './logo.png'
 ];
 
 self.addEventListener('install', function(e) {
