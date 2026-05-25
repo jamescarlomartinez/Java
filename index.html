@@ -82,7 +82,8 @@
     .card-title-left { display: flex; align-items: center; gap: 6px; }
 
     /* ── INPUT ROW ── */
-    .input-row { display: flex; gap: 8px; }
+    .input-row { display: flex; gap: 8px; align-items: stretch; }
+    .input-row .btn { flex-shrink: 0; min-width: 64px; align-self: stretch; }
     .text-input {
       flex: 1; background: var(--bg); border: 2px solid var(--border);
       border-radius: 10px; padding: 13px 14px;
