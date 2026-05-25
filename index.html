@@ -228,6 +228,30 @@
     .play-bar-wrap { height: 6px; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; min-width: 40px; }
     .play-bar { height: 100%; background: var(--primary); border-radius: 3px; transition: width .4s ease; }
 
+    /* Wins badge */
+    .wins-badge { font-size: 0.68rem; background: #3a2200; color: #ffa040; border: 1px solid #6a4400; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+
+    /* Leaderboard */
+    .lb-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .lb-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    .lb-table th { padding: 7px 8px; color: var(--text-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .lb-table th:first-child { text-align: center; width: 32px; }
+    .lb-table th.r { text-align: right; }
+    .lb-table td { padding: 9px 8px; border-bottom: 1px solid rgba(42,90,62,.3); vertical-align: middle; }
+    .lb-table tr:last-child td { border-bottom: none; }
+    .lb-rank { text-align: center; font-size: 0.8rem; font-weight: 800; color: var(--text-muted); }
+    .lb-rank.gold   { color: #ffd700; }
+    .lb-rank.silver { color: #c0c0c0; }
+    .lb-rank.bronze { color: #cd7f32; }
+    .lb-name { font-weight: 700; }
+    .lb-num  { text-align: right; font-weight: 700; }
+    .lb-win  { text-align: right; font-weight: 800; color: var(--accent); }
+    .lb-bar-cell { width: 70px; padding-left: 4px !important; }
+    .lb-bar-wrap { height: 7px; background: rgba(255,255,255,.07); border-radius: 4px; overflow: hidden; }
+    .lb-bar-win { height: 100%; background: var(--accent); border-radius: 4px; min-width: 2px; transition: width .4s ease; }
+    .lb-pct  { text-align: right; font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+    .lb-no-games { text-align: center; color: var(--text-muted); font-size: 0.88rem; padding: 16px 0; }
+
     /* Divider */
     .divider { height: 1px; background: var(--border); margin: 12px 0; opacity: .4; }
 
@@ -310,11 +334,23 @@
   <!-- History -->
   <div id="historySection"></div>
 
-  <!-- Stats -->
+  <!-- Leaderboard -->
   <div class="card" id="statsCard" style="display:none">
-    <div class="card-title"><span class="card-title-left">📊 Play Count Stats</span></div>
-    <table class="stats-table">
-      <thead><tr><th>Player</th><th style="text-align:center">Games</th><th></th></tr></thead>
+    <div class="lb-header-row">
+      <div class="card-title" style="margin-bottom:0"><span class="card-title-left">📊 Player Standings</span></div>
+      <button class="btn btn-ghost btn-sm" onclick="resetStats()">Reset Stats</button>
+    </div>
+    <table class="lb-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Player</th>
+          <th class="r">G</th>
+          <th class="r">W</th>
+          <th class="r">Win%</th>
+          <th class="lb-bar-cell"></th>
+        </tr>
+      </thead>
       <tbody id="statsBody"></tbody>
     </table>
   </div>
@@ -331,6 +367,7 @@ var S = {
   players:     [],
   courts:      2,
   playCounts:  {},   // name -> total games played
+  winCounts:   {},   // name -> total wins
   courtStates: [],   // { courtNum, status, gameNum, teamA, teamB, winner }
   history:     []    // completed game records
 };
@@ -387,8 +424,9 @@ function addPlayer() {
   }
   S.players.push(raw);
   if (S.playCounts[raw] === undefined) S.playCounts[raw] = 0;
+  if (S.winCounts[raw]  === undefined) S.winCounts[raw]  = 0;
   inp.value = ''; inp.focus();
-  save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderStatsTable(); clearMsg();
+  save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderLeaderboard(); clearMsg();
 }
 
 function removePlayer(idx) {
@@ -401,13 +439,14 @@ function removePlayer(idx) {
   if (!confirm('Remove "' + name + '" from the list?')) return;
   S.players.splice(idx, 1);
   delete S.playCounts[name];
-  save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderStatsTable();
+  delete S.winCounts[name];
+  save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderLeaderboard();
 }
 
 function clearAllPlayers() {
   if (S.players.length === 0) { showToast('No players to clear.'); return; }
   if (!confirm('Clear all players and reset everything?')) return;
-  S.players = []; S.playCounts = {}; S.history = [];
+  S.players = []; S.playCounts = {}; S.winCounts = {}; S.history = [];
   initCourtStates(S.courts);
   save(); renderPlayerList(); renderAll(); clearMsg();
 }
@@ -422,15 +461,21 @@ function renderPlayerList() {
   el.innerHTML = S.players.map(function(name, i) {
     var isLocked = locked.indexOf(name) !== -1;
     var g = S.playCounts[name] || 0;
-    var badge = isLocked
-      ? '<span class="locked-badge">🔒 On Court</span>'
-      : (g > 0 ? '<span class="games-badge">' + g + ' game' + (g !== 1 ? 's' : '') + '</span>' : '');
+    var w = S.winCounts[name]  || 0;
+    var badges = '';
+    if (isLocked) {
+      badges = '<span class="locked-badge">🔒 On Court</span>';
+    } else {
+      if (w > 0) badges += '<span class="wins-badge">🏆 ' + w + 'W</span>';
+      if (g > 0) badges += '<span class="games-badge">' + g + 'G</span>';
+    }
     var removeBtn = isLocked
       ? '<button class="btn btn-ghost btn-sm" disabled style="opacity:.3">✕</button>'
       : '<button class="btn btn-danger btn-sm" onclick="removePlayer(' + i + ')">✕</button>';
     return '<div class="player-item' + (isLocked ? ' locked' : '') + '">'
       + '<span class="player-name">' + (i+1) + '. ' + esc(name) + '</span>'
-      + badge + removeBtn + '</div>';
+      + '<span style="display:flex;gap:5px;flex-shrink:0">' + badges + '</span>'
+      + removeBtn + '</div>';
   }).join('');
 }
 
@@ -524,6 +569,7 @@ function recordWinner(idx, winner) {
   cs.winner = winner;
   cs.status = 'done';
   var winNames = winner === 'A' ? cs.teamA : cs.teamB;
+  winNames.forEach(function(p){ S.winCounts[p] = (S.winCounts[p] || 0) + 1; });
   S.history.unshift({
     courtNum:    cs.courtNum,
     gameNum:     cs.gameNum,
@@ -540,11 +586,17 @@ function recordWinner(idx, winner) {
 
 function resetAllCourts() {
   var hasActive = S.courtStates.some(function(cs){ return cs.status === 'playing'; });
-  if (!confirm((hasActive ? 'Reset all courts? Active games will be lost. ' : '') + 'Play counts and history will be cleared.')) return;
+  if (!confirm((hasActive ? 'Reset all courts? Active games will be lost.\n' : '') + 'Court assignments and game history will be cleared. Player stats (wins/games) are kept.')) return;
   S.history = [];
   initCourtStates(S.courts);
-  S.players.forEach(function(p){ S.playCounts[p] = 0; });
-  save(); renderAll(); clearMsg(); showToast('All courts reset.');
+  save(); renderAll(); clearMsg(); showToast('All courts reset. Player stats preserved.');
+}
+
+function resetStats() {
+  if (!confirm('Reset all player stats? This will clear wins, games played, and game history for everyone.')) return;
+  S.players.forEach(function(p){ S.playCounts[p] = 0; S.winCounts[p] = 0; });
+  S.history = [];
+  save(); renderAll(); clearMsg(); showToast('Player stats reset.');
 }
 
 /* =====================================================
@@ -578,7 +630,7 @@ function renderAll() {
   renderAvailableSection();
   renderCourtsSection();
   renderHistorySection();
-  renderStatsTable();
+  renderLeaderboard();
 }
 
 /* =====================================================
@@ -706,22 +758,44 @@ function renderHistorySection() {
 }
 
 /* =====================================================
-   RENDER: STATS TABLE
+   RENDER: LEADERBOARD
 ===================================================== */
-function renderStatsTable() {
+function renderLeaderboard() {
   var card = document.getElementById('statsCard');
   var body = document.getElementById('statsBody');
-  var hasGames = S.players.some(function(p){ return (S.playCounts[p] || 0) > 0; });
-  if (S.players.length === 0 || !hasGames) { card.style.display = 'none'; return; }
+  var hasActivity = S.players.some(function(p){ return (S.playCounts[p] || 0) > 0; });
+  if (S.players.length === 0) { card.style.display = 'none'; return; }
   card.style.display = 'block';
-  var max = S.players.reduce(function(m,p){ return Math.max(m, S.playCounts[p]||0); }, 1);
-  var sorted = S.players.slice().sort(function(a,b){ return (S.playCounts[b]||0)-(S.playCounts[a]||0); });
-  body.innerHTML = sorted.map(function(name) {
+
+  if (!hasActivity) {
+    body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No games played yet. Generate games to start tracking stats.</div></td></tr>';
+    return;
+  }
+
+  // Sort: wins desc, then games desc, then name asc
+  var sorted = S.players.slice().sort(function(a, b) {
+    var wDiff = (S.winCounts[b] || 0) - (S.winCounts[a] || 0);
+    if (wDiff !== 0) return wDiff;
+    var gDiff = (S.playCounts[b] || 0) - (S.playCounts[a] || 0);
+    if (gDiff !== 0) return gDiff;
+    return a.localeCompare(b);
+  });
+
+  body.innerHTML = sorted.map(function(name, i) {
+    var rank = i + 1;
     var g = S.playCounts[name] || 0;
-    var pct = Math.round((g / max) * 100);
-    return '<tr><td>' + esc(name) + '</td>'
-      + '<td style="text-align:center;font-weight:700">' + g + '</td>'
-      + '<td style="width:80px"><div class="play-bar-wrap"><div class="play-bar" style="width:'+pct+'%"></div></div></td>'
+    var w = S.winCounts[name]  || 0;
+    var pct = g > 0 ? Math.round((w / g) * 100) : 0;
+    var pctLabel = g > 0 ? pct + '%' : '—';
+    var rankCls = rank === 1 ? 'gold' : (rank === 2 ? 'silver' : (rank === 3 ? 'bronze' : ''));
+    var rankIcon = rank === 1 ? '🥇' : (rank === 2 ? '🥈' : (rank === 3 ? '🥉' : rank));
+    return '<tr>'
+      + '<td class="lb-rank ' + rankCls + '">' + rankIcon + '</td>'
+      + '<td class="lb-name">' + esc(name) + '</td>'
+      + '<td class="lb-num">'  + g + '</td>'
+      + '<td class="lb-win">'  + w + '</td>'
+      + '<td class="lb-pct">'  + pctLabel + '</td>'
+      + '<td class="lb-bar-cell"><div class="lb-bar-wrap"><div class="lb-bar-win" style="width:' + pct + '%"></div></div></td>'
       + '</tr>';
   }).join('');
 }
@@ -752,9 +826,13 @@ function loadState() {
     if (Array.isArray(p.players))                             S.players     = p.players;
     if (typeof p.courts === 'number')                         S.courts      = p.courts;
     if (p.playCounts && typeof p.playCounts === 'object')     S.playCounts  = p.playCounts;
+    if (p.winCounts  && typeof p.winCounts  === 'object')     S.winCounts   = p.winCounts;
     if (Array.isArray(p.courtStates))                         S.courtStates = p.courtStates;
     if (Array.isArray(p.history))                             S.history     = p.history;
-    S.players.forEach(function(n){ if (S.playCounts[n] === undefined) S.playCounts[n] = 0; });
+    S.players.forEach(function(n){
+      if (S.playCounts[n] === undefined) S.playCounts[n] = 0;
+      if (S.winCounts[n]  === undefined) S.winCounts[n]  = 0;
+    });
     initCourtStates(S.courts);
   } catch(e) { initCourtStates(S.courts); }
 }
