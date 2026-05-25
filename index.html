@@ -82,12 +82,11 @@
     .card-title-left { display: flex; align-items: center; gap: 6px; }
 
     /* ── INPUT ROW ── */
-    .input-row { display: flex; gap: 8px; align-items: stretch; }
-    .input-row .text-input { min-height: 50px; }
-    .input-row .btn { flex-shrink: 0; width: 72px; padding-top: 0; padding-bottom: 0; }
+    .input-row { display: grid; grid-template-columns: 1fr 72px; gap: 8px; }
+    .input-row .btn { display: flex; padding: 0; width: 100%; min-height: 50px; }
     .text-input {
-      flex: 1; background: var(--bg); border: 2px solid var(--border);
-      border-radius: 10px; padding: 13px 14px;
+      background: var(--bg); border: 2px solid var(--border);
+      border-radius: 10px; padding: 13px 14px; width: 100%; min-height: 50px;
       color: var(--text); font-size: 1rem; outline: none;
       -webkit-appearance: none; transition: border-color .15s;
     }
