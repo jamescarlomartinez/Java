@@ -280,6 +280,27 @@
     /* Toast */
     .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(80px); background: #1b4332; color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 0.88rem; font-weight: 700; box-shadow: 0 4px 20px rgba(0,0,0,.5); border: 1px solid var(--primary-light); transition: transform .3s cubic-bezier(.34,1.56,.64,1); z-index: 1000; text-align: center; max-width: 88vw; pointer-events: none; }
     .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── OFFLINE BAR ── */
+    .offline-bar { display: none; background: #2a1400; color: #f4a261; padding: 7px 14px; text-align: center; font-size: 0.8rem; font-weight: 700; border-bottom: 1px solid rgba(244,162,97,.35); }
+    .offline-bar.visible { display: block; }
+
+    /* ── NOT AVAILABLE ── */
+    .player-item.not-avail { background: rgba(180,30,30,.07); }
+    .player-item.not-avail .player-name { text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); color: var(--text-muted); }
+    .btn-na { background: transparent; border: 1px solid var(--border); color: var(--text-muted); font-size: 0.72rem; padding: 3px 9px; border-radius: 6px; cursor: pointer; flex-shrink: 0; white-space: nowrap; transition: all .15s; }
+    .btn-na.is-na { background: rgba(230,57,70,.15); border-color: rgba(230,57,70,.5); color: #ff8080; }
+    .na-tag { background: rgba(230,57,70,.15); border: 1px solid rgba(230,57,70,.4); color: #ff9090; padding: 2px 9px; border-radius: 12px; font-size: 0.7rem; }
+    .na-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.06); }
+    .na-chip { background: rgba(230,57,70,.08); border: 1px solid rgba(230,57,70,.25); border-radius: 20px; padding: 7px 14px; font-size: 0.88rem; font-weight: 600; color: #ff8080; text-decoration: line-through; text-decoration-color: rgba(255,128,128,.4); }
+    .na-section-lbl { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: #ff8080; margin-bottom: 4px; }
+
+    /* ── SKIP PLAYER ── */
+    .team-player { display: flex; align-items: center; gap: 5px; font-size: 0.93rem; font-weight: 600; padding: 3px 0; color: #fff; }
+    .team-player .tp-icon { flex-shrink: 0; }
+    .team-player .tp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .skip-btn { font-size: 0.68rem !important; padding: 2px 8px !important; border-radius: 6px !important; flex-shrink: 0; background: rgba(255,255,255,.08) !important; border: 1px solid rgba(255,255,255,.15) !important; color: var(--text-dim) !important; cursor: pointer; transition: all .15s; white-space: nowrap; }
+    .skip-btn:active { background: rgba(255,255,255,.18) !important; }
   </style>
 </head>
 <body>
@@ -295,6 +316,8 @@
     <div class="header-subtitle">by James Martinez</div>
   </div>
 </header>
+
+<div class="offline-bar" id="offlineBar">📶 You're offline — all data is saved locally</div>
 
 <div class="container">
 
@@ -386,12 +409,13 @@
    STATE
 ===================================================== */
 var S = {
-  players:     [],
-  courts:      2,
-  playCounts:  {},   // name -> total games played
-  winCounts:   {},   // name -> total wins
-  courtStates: [],   // { courtNum, status, gameNum, teamA, teamB, winner }
-  history:     []    // completed game records
+  players:      [],
+  courts:       2,
+  playCounts:   {},
+  winCounts:    {},
+  courtStates:  [],
+  history:      [],
+  notAvailable: {}
 };
 
 var historyOpen = false;
@@ -407,6 +431,7 @@ function init() {
   document.getElementById('playerInput').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); addPlayer(); }
   });
+  updateOnlineStatus();
 }
 
 /* =====================================================
@@ -430,7 +455,7 @@ function getLockedPlayers() {
 
 function getAvailablePlayers() {
   var locked = getLockedPlayers();
-  return S.players.filter(function(p) { return locked.indexOf(p) === -1; });
+  return S.players.filter(function(p) { return locked.indexOf(p) === -1 && !S.notAvailable[p]; });
 }
 
 /* =====================================================
@@ -462,13 +487,14 @@ function removePlayer(idx) {
   S.players.splice(idx, 1);
   delete S.playCounts[name];
   delete S.winCounts[name];
+  delete S.notAvailable[name];
   save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderLeaderboard();
 }
 
 function clearAllPlayers() {
   if (S.players.length === 0) { showToast('No players to clear.'); return; }
   if (!confirm('Clear all players and reset everything?')) return;
-  S.players = []; S.playCounts = {}; S.winCounts = {}; S.history = [];
+  S.players = []; S.playCounts = {}; S.winCounts = {}; S.history = []; S.notAvailable = {};
   initCourtStates(S.courts);
   save(); renderPlayerList(); renderAll(); clearMsg();
 }
@@ -482,21 +508,26 @@ function renderPlayerList() {
   var locked = getLockedPlayers();
   el.innerHTML = S.players.map(function(name, i) {
     var isLocked = locked.indexOf(name) !== -1;
+    var isNA = !!S.notAvailable[name];
     var g = S.playCounts[name] || 0;
     var w = S.winCounts[name]  || 0;
     var badges = '';
     if (isLocked) {
       badges = '<span class="locked-badge">🔒 On Court</span>';
+    } else if (isNA) {
+      badges = '<span class="na-tag">⛔ Not Available</span>';
     } else {
       if (w > 0) badges += '<span class="wins-badge">🏆 ' + w + 'W</span>';
       if (g > 0) badges += '<span class="games-badge">' + g + 'G</span>';
     }
+    var naBtn = isLocked ? '' : '<button class="btn-na' + (isNA ? ' is-na' : '') + '" onclick="toggleNotAvailable(' + i + ')" title="' + (isNA ? 'Mark available' : 'Mark not available') + '">' + (isNA ? '✅ Back In' : '⛔ NA') + '</button>';
     var removeBtn = isLocked
       ? '<button class="btn btn-ghost btn-sm" disabled style="opacity:.3">✕</button>'
       : '<button class="btn btn-danger btn-sm" onclick="removePlayer(' + i + ')">✕</button>';
-    return '<div class="player-item' + (isLocked ? ' locked' : '') + '">'
+    var cls = 'player-item' + (isLocked ? ' locked' : '') + (isNA ? ' not-avail' : '');
+    return '<div class="' + cls + '">'
       + '<span class="player-name">' + (i+1) + '. ' + esc(name) + '</span>'
-      + '<span style="display:flex;gap:5px;flex-shrink:0">' + badges + '</span>'
+      + '<span style="display:flex;gap:5px;flex-shrink:0;align-items:center">' + badges + naBtn + '</span>'
       + removeBtn + '</div>';
   }).join('');
 }
@@ -663,15 +694,25 @@ function renderAvailableSection() {
   if (S.players.length === 0) { el.innerHTML = ''; return; }
   var avail  = getAvailablePlayers();
   var locked = getLockedPlayers();
+  var naList = S.players.filter(function(p) { return !!S.notAvailable[p]; });
   var html = '<div class="avail-card"><div class="avail-header">'
     + '✅ Available (' + avail.length + ')';
   if (locked.length > 0) html += '<span class="on-court-tag">🔒 On Court: ' + locked.length + '</span>';
+  if (naList.length > 0) html += '<span class="na-tag">⛔ Not Available: ' + naList.length + '</span>';
   html += '</div>';
-  if (avail.length === 0) {
+  if (avail.length === 0 && naList.length === 0) {
     html += '<div class="no-avail">All players are currently on court.</div>';
+  } else if (avail.length === 0) {
+    html += '<div class="no-avail">No players available for rotation.</div>';
   } else {
     html += '<div class="avail-chips">'
       + avail.map(function(n){ return '<div class="avail-chip">' + esc(n) + '</div>'; }).join('')
+      + '</div>';
+  }
+  if (naList.length > 0) {
+    html += '<div class="na-chips">'
+      + '<div class="na-section-lbl" style="width:100%;margin-bottom:6px">⛔ Sitting Out</div>'
+      + naList.map(function(n){ return '<div class="na-chip">' + esc(n) + '</div>'; }).join('')
       + '</div>';
   }
   html += '</div>';
@@ -729,19 +770,26 @@ function statusBadgeHtml(st) {
 }
 
 function teamsHtml(cs, showWinner) {
+  var idx = S.courtStates.indexOf(cs);
+  var allowSkip = !showWinner;
   var aWon = showWinner && cs.winner === 'A';
   var bWon = showWinner && cs.winner === 'B';
+  function playerRow(name, team, pi) {
+    var skipBtn = allowSkip
+      ? '<button class="skip-btn" onclick="skipPlayer(' + idx + ',\'' + team + '\',' + pi + ')">↩ Skip</button>'
+      : '';
+    return '<div class="team-player"><span class="tp-icon">' + (team === 'A' ? '🟢' : '🔵') + '</span>'
+      + '<span class="tp-name">' + esc(name) + '</span>' + skipBtn + '</div>';
+  }
   return '<div class="teams-row">'
     + '<div class="team-box' + (aWon ? ' team-winner' : '') + '">'
     + '<div class="team-lbl' + (aWon ? ' won' : '') + '">Team A' + (aWon ? ' 🏆' : '') + '</div>'
-    + '<div class="team-player"><span>🟢</span>' + esc(cs.teamA[0]) + '</div>'
-    + '<div class="team-player"><span>🟢</span>' + esc(cs.teamA[1]) + '</div>'
+    + playerRow(cs.teamA[0], 'A', 0) + playerRow(cs.teamA[1], 'A', 1)
     + '</div>'
     + '<div class="vs-col">VS</div>'
     + '<div class="team-box' + (bWon ? ' team-winner' : '') + '">'
     + '<div class="team-lbl' + (bWon ? ' won' : '') + '">Team B' + (bWon ? ' 🏆' : '') + '</div>'
-    + '<div class="team-player"><span>🔵</span>' + esc(cs.teamB[0]) + '</div>'
-    + '<div class="team-player"><span>🔵</span>' + esc(cs.teamB[1]) + '</div>'
+    + playerRow(cs.teamB[0], 'B', 0) + playerRow(cs.teamB[1], 'B', 1)
     + '</div></div>';
 }
 
@@ -823,6 +871,44 @@ function renderLeaderboard() {
 }
 
 /* =====================================================
+   NOT AVAILABLE TOGGLE
+===================================================== */
+function toggleNotAvailable(idx) {
+  var name = S.players[idx];
+  if (!name) return;
+  var locked = getLockedPlayers();
+  if (locked.indexOf(name) !== -1) { showToast('"' + name + '" is on an active court.'); return; }
+  if (S.notAvailable[name]) {
+    delete S.notAvailable[name];
+  } else {
+    S.notAvailable[name] = true;
+  }
+  save(); renderPlayerList(); updateStats(); renderAvailableSection();
+}
+
+/* =====================================================
+   SKIP PLAYER
+===================================================== */
+function skipPlayer(courtIdx, team, pi) {
+  var cs = S.courtStates[courtIdx];
+  if (!cs || cs.status !== 'playing') return;
+  var teamArr = team === 'A' ? cs.teamA : cs.teamB;
+  var skipped = teamArr[pi];
+  var avail = getAvailablePlayers();
+  if (avail.length === 0) {
+    showToast('No available players to substitute for ' + skipped + '.');
+    return;
+  }
+  var sorted = sortByCount(avail, S.playCounts);
+  var sub = sorted[0];
+  teamArr[pi] = sub;
+  S.playCounts[skipped] = Math.max(0, (S.playCounts[skipped] || 1) - 1);
+  S.playCounts[sub] = (S.playCounts[sub] || 0) + 1;
+  save(); renderAll();
+  showToast(esc(skipped) + ' skipped → ' + esc(sub) + ' steps in!');
+}
+
+/* =====================================================
    MESSAGES & TOAST
 ===================================================== */
 function showMsg(text, type) { var el = document.getElementById('msgBox'); el.className = 'msg-box ' + (type||'info'); el.textContent = text; }
@@ -851,6 +937,7 @@ function loadState() {
     if (p.winCounts  && typeof p.winCounts  === 'object')     S.winCounts   = p.winCounts;
     if (Array.isArray(p.courtStates))                         S.courtStates = p.courtStates;
     if (Array.isArray(p.history))                             S.history     = p.history;
+    if (p.notAvailable && typeof p.notAvailable === 'object') S.notAvailable = p.notAvailable;
     S.players.forEach(function(n){
       if (S.playCounts[n] === undefined) S.playCounts[n] = 0;
       if (S.winCounts[n]  === undefined) S.winCounts[n]  = 0;
@@ -884,6 +971,15 @@ window.addEventListener('appinstalled', function() {
   document.getElementById('installBanner').classList.remove('visible');
   showToast('App installed! Find it on your home screen.');
 });
+
+/* =====================================================
+   ONLINE / OFFLINE
+===================================================== */
+function updateOnlineStatus() {
+  document.getElementById('offlineBar').classList.toggle('visible', !navigator.onLine);
+}
+window.addEventListener('online',  updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
 
 /* =====================================================
    SERVICE WORKER
