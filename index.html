@@ -304,6 +304,14 @@
     .skip-btn { font-size: 0.68rem !important; padding: 2px 8px !important; border-radius: 6px !important; flex-shrink: 0; background: rgba(255,255,255,.08) !important; border: 1px solid rgba(255,255,255,.15) !important; color: var(--text-dim) !important; cursor: pointer; transition: all .15s; white-space: nowrap; }
     .skip-btn:active { background: rgba(255,255,255,.18) !important; }
 
+    /* ── SWAP PLAYER ── */
+    .swap-btn { font-size: 0.68rem !important; padding: 2px 8px !important; border-radius: 6px !important; flex-shrink: 0; background: rgba(255,200,50,.08) !important; border: 1px solid rgba(255,200,50,.22) !important; color: #ffd040 !important; cursor: pointer; transition: all .15s; white-space: nowrap; }
+    .swap-btn.is-active { background: rgba(230,57,70,.2) !important; border-color: rgba(230,57,70,.5) !important; color: #ff8080 !important; }
+    .swap-btn:active { filter: brightness(.85); }
+    .swap-target-btn { font-size: 0.68rem !important; padding: 2px 10px !important; border-radius: 6px !important; flex-shrink: 0; background: rgba(82,183,136,.18) !important; border: 1px solid rgba(82,183,136,.45) !important; color: #6dffb0 !important; cursor: pointer; transition: all .15s; white-space: nowrap; font-weight: 800 !important; }
+    .swap-target-btn:active { filter: brightness(.85); }
+    .team-player.swap-selecting { background: rgba(255,180,30,.07); border-radius: 7px; padding: 2px 5px; margin: 1px -5px; }
+
     /* ── AUTH OVERLAY ── */
     .auth-overlay { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; }
     .auth-overlay.hidden { display: none; }
@@ -456,6 +464,7 @@ var S = {
 };
 
 var historyOpen = false;
+var swapState = null; // { courtIdx, team, pi } — pending swap selection
 
 /* =====================================================
    INIT
@@ -670,6 +679,7 @@ function recordWinner(idx, winner) {
     ts:          Date.now()
   });
   if (S.history.length > 100) S.history = S.history.slice(0, 100);
+  swapState = null;
   save(); renderAll();
   showToast('Court ' + cs.courtNum + ' — ' + winNames.join(' & ') + ' won! 🏆');
 }
@@ -678,6 +688,7 @@ function resetAllCourts() {
   var hasActive = S.courtStates.some(function(cs){ return cs.status === 'playing'; });
   if (!confirm((hasActive ? 'Reset all courts? Active games will be lost.\n' : '') + 'Court assignments and game history will be cleared. Player stats (wins/games) are kept.')) return;
   S.history = [];
+  swapState = null;
   initCourtStates(S.courts);
   save(); renderAll(); clearMsg(); showToast('All courts reset. Player stats preserved.');
 }
@@ -808,16 +819,32 @@ function statusBadgeHtml(st) {
 
 function teamsHtml(cs, showWinner) {
   var idx = S.courtStates.indexOf(cs);
-  var allowSkip = !showWinner;
+  var allowActions = !showWinner;
   var aWon = showWinner && cs.winner === 'A';
   var bWon = showWinner && cs.winner === 'B';
+  var pending = swapState && swapState.courtIdx === idx;
+
   function playerRow(name, team, pi) {
-    var skipBtn = allowSkip
-      ? '<button class="skip-btn" onclick="skipPlayer(' + idx + ',\'' + team + '\',' + pi + ')">↩ Skip</button>'
-      : '';
-    return '<div class="team-player"><span class="tp-icon">' + (team === 'A' ? '🟢' : '🔵') + '</span>'
-      + '<span class="tp-name">' + esc(name) + '</span>' + skipBtn + '</div>';
+    var btns = '';
+    if (allowActions) {
+      if (pending) {
+        if (swapState.team === team && swapState.pi === pi) {
+          btns = '<button class="swap-btn is-active" onclick="startSwap(' + idx + ',\'' + team + '\',' + pi + ')">✕ Cancel</button>';
+        } else if (swapState.team !== team) {
+          btns = '<button class="swap-target-btn" onclick="executeSwap(' + idx + ',\'' + team + '\',' + pi + ')">⇄ Swap here</button>';
+        }
+      } else {
+        btns = '<button class="skip-btn" onclick="skipPlayer(' + idx + ',\'' + team + '\',' + pi + ')">↩ Skip</button>'
+             + '<button class="swap-btn" onclick="startSwap(' + idx + ',\'' + team + '\',' + pi + ')">⇄</button>';
+      }
+    }
+    var isSelecting = pending && swapState.team === team && swapState.pi === pi;
+    return '<div class="team-player' + (isSelecting ? ' swap-selecting' : '') + '">'
+      + '<span class="tp-icon">' + (team === 'A' ? '🟢' : '🔵') + '</span>'
+      + '<span class="tp-name">' + esc(name) + '</span>'
+      + btns + '</div>';
   }
+
   return '<div class="teams-row">'
     + '<div class="team-box' + (aWon ? ' team-winner' : '') + '">'
     + '<div class="team-lbl' + (aWon ? ' won' : '') + '">Team A' + (aWon ? ' 🏆' : '') + '</div>'
@@ -828,6 +855,30 @@ function teamsHtml(cs, showWinner) {
     + '<div class="team-lbl' + (bWon ? ' won' : '') + '">Team B' + (bWon ? ' 🏆' : '') + '</div>'
     + playerRow(cs.teamB[0], 'B', 0) + playerRow(cs.teamB[1], 'B', 1)
     + '</div></div>';
+}
+
+function startSwap(courtIdx, team, pi) {
+  if (swapState && swapState.courtIdx === courtIdx && swapState.team === team && swapState.pi === pi) {
+    swapState = null;
+  } else {
+    swapState = { courtIdx: courtIdx, team: team, pi: pi };
+  }
+  renderCourtsSection();
+}
+
+function executeSwap(courtIdx, toTeam, toPi) {
+  if (!swapState || swapState.courtIdx !== courtIdx) return;
+  var cs = S.courtStates[courtIdx];
+  if (!cs || cs.status !== 'playing') return;
+  var fromArr = swapState.team === 'A' ? cs.teamA : cs.teamB;
+  var toArr   = toTeam === 'A'         ? cs.teamA : cs.teamB;
+  var fromName = fromArr[swapState.pi];
+  var toName   = toArr[toPi];
+  fromArr[swapState.pi] = toName;
+  toArr[toPi]           = fromName;
+  swapState = null;
+  save(); renderAll();
+  showToast(esc(fromName) + ' ⇄ ' + esc(toName) + ' swapped teams!');
 }
 
 /* =====================================================
