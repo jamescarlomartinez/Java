@@ -323,9 +323,9 @@
     .btn-google:active { filter: brightness(.92); }
     .auth-error { margin-top: 14px; font-size: 0.82rem; color: #ff8080; display: none; }
     .auth-error.show { display: block; }
-    #signOutWrap { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; padding-right: 4px; }
-    .btn-signout { font-size: 0.62rem; padding: 3px 9px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); color: rgba(255,255,255,.5); border-radius: 20px; cursor: pointer; transition: all .15s; white-space: nowrap; }
-    .btn-signout:active { background: rgba(255,255,255,.14); }
+    #signOutWrap { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
+    .btn-signout { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; padding: 0; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); color: rgba(255,255,255,.45); border-radius: 8px; cursor: pointer; transition: all .15s; }
+    .btn-signout:active { background: rgba(255,255,255,.16); color: rgba(255,255,255,.8); }
   </style>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -358,7 +358,9 @@
     <div class="header-subtitle">by James Martinez</div>
   </div>
   <div id="signOutWrap" style="display:none">
-    <button class="btn-signout" id="signOutBtn">Sign out</button>
+    <button class="btn-signout" id="signOutBtn" title="Sign out">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </button>
   </div>
 </header>
 
