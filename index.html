@@ -46,9 +46,10 @@
     .app-header {
       background: linear-gradient(160deg, #1b4332 0%, #2d6a4f 60%, #1b4332 100%);
       border-bottom: 3px solid var(--accent);
-      padding: 12px 16px 10px; text-align: center;
+      padding: 12px 16px 10px;
       position: sticky; top: 0; z-index: 200;
       box-shadow: 0 3px 16px rgba(0,0,0,.5);
+      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
     }
     .app-logo-wrap {
       display: inline-block;
@@ -57,6 +58,7 @@
       padding: 5px 14px 4px;
       box-shadow: 0 2px 10px rgba(0,0,0,.35);
       line-height: 0;
+      grid-column: 2;
     }
     .app-logo-img {
       height: 56px;
@@ -64,7 +66,7 @@
       display: block;
     }
     /* fallback shown only when logo.png is missing */
-    .app-logo-fallback { display: none; }
+    .app-logo-fallback { display: none; grid-column: 2; text-align: center; }
     .app-logo-fallback .header-logo { font-size: 2rem; line-height: 1; margin-bottom: 4px; }
     .app-logo-fallback .header-title { font-size: 1.25rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; }
     .app-logo-fallback .header-subtitle { font-size: 0.72rem; color: var(--primary-light); letter-spacing: 0.5px; margin-top: 2px; }
@@ -313,7 +315,8 @@
     .btn-google:active { filter: brightness(.92); }
     .auth-error { margin-top: 14px; font-size: 0.82rem; color: #ff8080; display: none; }
     .auth-error.show { display: block; }
-    .btn-signout { font-size: 0.72rem; padding: 4px 12px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.2); color: rgba(255,255,255,.6); border-radius: 20px; cursor: pointer; transition: all .15s; }
+    #signOutWrap { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; padding-right: 4px; }
+    .btn-signout { font-size: 0.62rem; padding: 3px 9px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); color: rgba(255,255,255,.5); border-radius: 20px; cursor: pointer; transition: all .15s; white-space: nowrap; }
     .btn-signout:active { background: rgba(255,255,255,.14); }
   </style>
 
@@ -346,7 +349,7 @@
     <div class="header-title">Pickleball Game Rotation</div>
     <div class="header-subtitle">by James Martinez</div>
   </div>
-  <div id="signOutWrap" style="position:absolute;top:10px;right:12px;display:none">
+  <div id="signOutWrap" style="display:none">
     <button class="btn-signout" id="signOutBtn">Sign out</button>
   </div>
 </header>
