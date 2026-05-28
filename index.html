@@ -301,9 +301,40 @@
     .team-player .tp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .skip-btn { font-size: 0.68rem !important; padding: 2px 8px !important; border-radius: 6px !important; flex-shrink: 0; background: rgba(255,255,255,.08) !important; border: 1px solid rgba(255,255,255,.15) !important; color: var(--text-dim) !important; cursor: pointer; transition: all .15s; white-space: nowrap; }
     .skip-btn:active { background: rgba(255,255,255,.18) !important; }
+
+    /* ── AUTH OVERLAY ── */
+    .auth-overlay { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; }
+    .auth-overlay.hidden { display: none; }
+    .auth-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 32px 28px; max-width: 340px; width: 100%; text-align: center; }
+    .auth-logo { height: 52px; width: auto; border-radius: 8px; margin-bottom: 20px; }
+    .auth-title { font-size: 1.1rem; font-weight: 900; color: var(--text); margin-bottom: 6px; }
+    .auth-sub { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 28px; line-height: 1.5; }
+    .btn-google { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 14px; background: #fff; color: #1a1a1a; border: none; border-radius: 10px; font-size: 0.95rem; font-weight: 700; cursor: pointer; transition: filter .15s; }
+    .btn-google:active { filter: brightness(.92); }
+    .auth-error { margin-top: 14px; font-size: 0.82rem; color: #ff8080; display: none; }
+    .auth-error.show { display: block; }
+    .btn-signout { font-size: 0.72rem; padding: 4px 12px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.2); color: rgba(255,255,255,.6); border-radius: 20px; cursor: pointer; transition: all .15s; }
+    .btn-signout:active { background: rgba(255,255,255,.14); }
   </style>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
+
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <img class="auth-logo" src="./logo.png?v=2" alt="" onerror="this.style.display='none'">
+    <div class="auth-title">Pickleball Game Rotation</div>
+    <div class="auth-sub">Sign in with your Gmail account to access the app.</div>
+    <button class="btn-google" id="signInBtn">
+      <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Sign in with Google
+    </button>
+    <div class="auth-error" id="authError">Your account is not authorised. Contact the app owner.</div>
+  </div>
+</div>
 
 <header class="app-header">
   <div class="app-logo-wrap">
@@ -314,6 +345,9 @@
     <div class="header-logo">🏓</div>
     <div class="header-title">Pickleball Game Rotation</div>
     <div class="header-subtitle">by James Martinez</div>
+  </div>
+  <div id="signOutWrap" style="position:absolute;top:10px;right:12px;display:none">
+    <button class="btn-signout" id="signOutBtn">Sign out</button>
   </div>
 </header>
 
@@ -990,7 +1024,62 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-init();
+/* =====================================================
+   FIREBASE AUTH
+===================================================== */
+var firebaseConfig = {
+  apiKey:            "AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc",
+  authDomain:        "pickleball-rotation.firebaseapp.com",
+  projectId:         "pickleball-rotation",
+  storageBucket:     "pickleball-rotation.firebasestorage.app",
+  messagingSenderId: "103026729080",
+  appId:             "1:103026729080:web:e4087895e44f190efa0d8d"
+};
+firebase.initializeApp(firebaseConfig);
+var fbAuth = firebase.auth();
+var fbDb   = firebase.firestore();
+
+document.getElementById('signInBtn').addEventListener('click', function() {
+  var provider = new firebase.auth.GoogleAuthProvider();
+  fbAuth.signInWithPopup(provider).catch(function(e) {
+    var errEl = document.getElementById('authError');
+    errEl.textContent = 'Sign-in failed: ' + e.message;
+    errEl.classList.add('show');
+  });
+});
+
+document.getElementById('signOutBtn').addEventListener('click', function() {
+  fbAuth.signOut();
+});
+
+var appInitialised = false;
+fbAuth.onAuthStateChanged(function(user) {
+  if (!user) {
+    document.getElementById('authOverlay').classList.remove('hidden');
+    document.getElementById('signOutWrap').style.display = 'none';
+    return;
+  }
+  fbDb.collection('allowedEmails').where('email', '==', user.email).get()
+    .then(function(snap) {
+      if (snap.empty) {
+        var errEl = document.getElementById('authError');
+        errEl.textContent = 'Your account (' + user.email + ') is not authorised. Contact the app owner.';
+        errEl.classList.add('show');
+        document.getElementById('authOverlay').classList.remove('hidden');
+        fbAuth.signOut();
+        return;
+      }
+      document.getElementById('authOverlay').classList.add('hidden');
+      document.getElementById('signOutWrap').style.display = 'block';
+      if (!appInitialised) { appInitialised = true; init(); }
+    })
+    .catch(function() {
+      var errEl = document.getElementById('authError');
+      errEl.textContent = 'Could not verify access. Check your connection.';
+      errEl.classList.add('show');
+      fbAuth.signOut();
+    });
+});
 </script>
 </body>
 </html>
