@@ -37,6 +37,46 @@ test('migrates pickleballRotation_v2 names, stats, availability, courts, and his
   assert.deepEqual(migrated.history[0].teamANames, ['Amy', 'Cara']);
 });
 
+test('clears a legacy active court when its players are absent from the current roster', () => {
+  const currentNames = Array.from({ length: 16 }, (_, index) => String(index + 1));
+  const migrated = Engine.migrateLegacy({
+    players: currentNames,
+    courts: 2,
+    courtStates: [
+      { courtNum: 1, status: 'playing', gameNum: 1, teamA: ['5', '3'], teamB: ['2', '8'] },
+      { courtNum: 2, status: 'playing', gameNum: 1, teamA: ['wewe', 'allan'], teamB: ['deb', 'rhaya'] }
+    ]
+  });
+
+  assert.equal(migrated.courtStates[0].status, 'playing');
+  assert.deepEqual(migrated.courtStates[0].teamA.map(id => Engine.playerName(migrated, id)), ['5', '3']);
+  assert.equal(migrated.courtStates[1].status, 'empty');
+  assert.deepEqual(migrated.courtStates[1].teamA, []);
+  assert.deepEqual(migrated.courtStates[1].teamB, []);
+  assert.deepEqual(Engine.lockedIds(migrated).map(id => Engine.playerName(migrated, id)).sort(), ['2', '3', '5', '8']);
+});
+
+test('normalization removes stale ids and incomplete lineups from current state', () => {
+  const state = stateWithPlayers(['1', '2', '3', '4'], 2);
+  state.courtStates[0] = {
+    courtNum: 1,
+    status: 'playing',
+    gameNum: 2,
+    teamA: ['p0', 'removed-player'],
+    teamB: ['p2', 'p3'],
+    winner: null,
+    assignmentRound: 2,
+    previousLastAssigned: { p0: -1, 'removed-player': 1 }
+  };
+
+  const normalized = Engine.normalizeState(state);
+  assert.equal(normalized.courtStates[0].status, 'empty');
+  assert.deepEqual(normalized.courtStates[0].teamA, []);
+  assert.deepEqual(normalized.courtStates[0].teamB, []);
+  assert.equal(normalized.courtStates[0].gameNum, 2);
+  assert.deepEqual(Engine.lockedIds(normalized), []);
+});
+
 test('prioritizes projected game-count fairness', () => {
   const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E'], 1);
   state.players[0].games = 4;

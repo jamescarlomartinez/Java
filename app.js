@@ -148,7 +148,11 @@ function clearMsg() {
 function loadLocalState() {
   try {
     var current = localStorage.getItem(LOCAL_KEY);
-    if (current) return Engine.normalizeState(JSON.parse(current));
+    if (current) {
+      var normalized = Engine.normalizeState(JSON.parse(current));
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
+      return normalized;
+    }
     var legacy = localStorage.getItem(LEGACY_KEY);
     if (legacy) {
       var migrated = Engine.migrateLegacy(JSON.parse(legacy));

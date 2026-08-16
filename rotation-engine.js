@@ -145,6 +145,27 @@
     state.teammateCounts = state.teammateCounts && typeof state.teammateCounts === 'object' ? state.teammateCounts : {};
     state.opponentCounts = state.opponentCounts && typeof state.opponentCounts === 'object' ? state.opponentCounts : {};
     initCourtStates(state, state.courts);
+    var rosterIds = new Set(state.players.map(function (player) { return player.id; }));
+    state.courtStates.forEach(function (court) {
+      var lineup = court.teamA.concat(court.teamB);
+      var hasCompleteCurrentLineup = court.teamA.length === 2
+        && court.teamB.length === 2
+        && lineup.every(function (id) { return rosterIds.has(id); })
+        && new Set(lineup).size === 4;
+      if ((court.status === 'playing' || court.status === 'done') && hasCompleteCurrentLineup) {
+        var lineupIds = new Set(lineup);
+        court.previousLastAssigned = Object.fromEntries(Object.entries(court.previousLastAssigned).filter(function (entry) {
+          return lineupIds.has(entry[0]);
+        }));
+        return;
+      }
+      court.status = 'empty';
+      court.teamA = [];
+      court.teamB = [];
+      court.winner = null;
+      court.assignmentRound = 0;
+      court.previousLastAssigned = {};
+    });
     return state;
   }
 
