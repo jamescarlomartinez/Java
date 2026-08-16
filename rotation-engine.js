@@ -184,6 +184,25 @@
     }).map(function (player) { return player.id; });
   }
 
+  function compareStandings(a, b) {
+    var aGames = Math.max(0, Number(a.games) || 0);
+    var bGames = Math.max(0, Number(b.games) || 0);
+    var aWins = Math.max(0, Number(a.wins) || 0);
+    var bWins = Math.max(0, Number(b.wins) || 0);
+    if (!!aGames !== !!bGames) return aGames ? -1 : 1;
+    if (aGames && bGames) {
+      var percentageDiff = bWins * aGames - aWins * bGames;
+      if (percentageDiff !== 0) return percentageDiff;
+    }
+    return bWins - aWins
+      || bGames - aGames
+      || String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  function rankedPlayers(state) {
+    return state.players.slice().sort(compareStandings);
+  }
+
   function pairKey(a, b) {
     return a < b ? a + '|' + b : b + '|' + a;
   }
@@ -373,6 +392,8 @@
     playerName: playerName,
     lockedIds: lockedIds,
     availableIds: availableIds,
+    compareStandings: compareStandings,
+    rankedPlayers: rankedPlayers,
     pairKey: pairKey,
     chooseAssignment: chooseAssignment,
     assignGame: assignGame,

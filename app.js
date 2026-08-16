@@ -909,7 +909,7 @@ function renderLeaderboard() {
   var body = document.getElementById('statsBody');
   if (!S.players.length) { card.style.display = 'none'; return; }
   card.style.display = 'block';
-  var sorted = S.players.slice().sort(function (a, b) { return b.wins - a.wins || b.games - a.games || a.name.localeCompare(b.name); });
+  var sorted = Engine.rankedPlayers(S);
   if (!sorted.some(function (player) { return player.games > 0; })) {
     body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No games played yet. Generate games to start tracking stats.</div></td></tr>'; return;
   }
