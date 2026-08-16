@@ -3,7 +3,7 @@
   "version": "3.0.0",
   "private": true,
   "scripts": {
-    "test": "node --test tests/rotation-engine.test.js",
+    "test": "node --test tests/rotation-engine.test.js tests/ui-shell.test.js",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.js\"",
     "test:all": "npm test && npm run test:rules"
   },
