@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v12-guest-join';
+const CACHE = 'pickleball-v13-standings-order';
 const ASSETS = [
   './',
   './index.html',

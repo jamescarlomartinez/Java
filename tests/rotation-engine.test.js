@@ -208,3 +208,37 @@ test('statistics reset clears credits, wins, wait metrics, and repeat history', 
   assert.deepEqual(state.opponentCounts, {});
   assert.equal(state.history.length, 0);
 });
+
+test('standings rank win percentage before total wins', () => {
+  const state = stateWithPlayers(['11', '12', '10', '6', '13', '1', '3', '4', '5', '7', '9', '8', '14', '2']);
+  const records = {
+    11: [3, 3], 12: [3, 2], 10: [2, 2], 6: [2, 2], 13: [3, 1],
+    1: [2, 1], 3: [2, 1], 4: [2, 1], 5: [2, 1], 7: [2, 1], 9: [2, 1],
+    8: [3, 0], 14: [2, 0], 2: [2, 0]
+  };
+  state.players.forEach(player => {
+    [player.games, player.wins] = records[player.name];
+  });
+
+  assert.deepEqual(
+    Engine.rankedPlayers(state).map(player => player.name),
+    ['11', '6', '10', '12', '1', '3', '4', '5', '7', '9', '13', '8', '2', '14']
+  );
+});
+
+test('standings use wins, games, and numeric player name as tie-breakers', () => {
+  const state = stateWithPlayers(['6', '12', '14', '10', '11', '13', '1', '3', '4', '5', '7', '8', '9', '2']);
+  const records = {
+    6: [4, 4], 12: [5, 3], 14: [5, 3], 10: [4, 3], 11: [4, 3], 13: [5, 2],
+    1: [4, 2], 3: [4, 2], 4: [4, 2], 5: [4, 2], 7: [4, 2],
+    8: [5, 1], 9: [4, 1], 2: [4, 0]
+  };
+  state.players.forEach(player => {
+    [player.games, player.wins] = records[player.name];
+  });
+
+  assert.deepEqual(
+    Engine.rankedPlayers(state).map(player => player.name),
+    ['6', '10', '11', '12', '14', '1', '3', '4', '5', '7', '13', '9', '8', '2']
+  );
+});
