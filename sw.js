@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v10-live-rooms';
+const CACHE = 'pickleball-v11-roster-repair';
 const ASSETS = [
   './',
   './index.html',
