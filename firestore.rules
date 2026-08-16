@@ -1,0 +1,143 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function roomPath(roomId) {
+      return /databases/$(database)/documents/rooms/$(roomId);
+    }
+
+    function memberPath(roomId, uid) {
+      return /databases/$(database)/documents/roomMembers/$(roomId + '_' + uid);
+    }
+
+    function isRoomMember(roomId) {
+      return signedIn() && exists(memberPath(roomId, request.auth.uid));
+    }
+
+    function isHost(roomId) {
+      return signedIn() && exists(roomPath(roomId))
+        && get(roomPath(roomId)).data.hostUid == request.auth.uid;
+    }
+
+    function validRoomShape(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'name', 'hostUid', 'hostName', 'hostEmail',
+          'organizerGrantId', 'status', 'revision', 'state', 'undoStack',
+          'lastEventId', 'createdAt', 'updatedAt', 'endedAt', 'expiresAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'name', 'hostUid', 'hostName', 'hostEmail',
+          'organizerGrantId', 'status', 'revision', 'state', 'undoStack',
+          'lastEventId', 'createdAt', 'updatedAt', 'endedAt', 'expiresAt'
+        ])
+        && data.schemaVersion == 1
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 60
+        && data.hostUid is string && data.hostName is string && data.hostEmail is string
+        && data.organizerGrantId is string
+        && data.status in ['active', 'ended']
+        && data.revision is int && data.revision >= 0
+        && data.state is map
+        && data.undoStack is list && data.undoStack.size() <= 10
+        && data.lastEventId is string;
+    }
+
+    match /allowedEmails/{grantId} {
+      allow get: if signedIn() && resource.data.email == request.auth.token.email;
+      allow list: if signedIn();
+      allow write: if false;
+    }
+
+    match /rooms/{roomId} {
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if signedIn()
+        && request.auth.token.email != null
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.hostEmail == request.auth.token.email
+        && request.resource.data.status == 'active'
+        && request.resource.data.revision == 0
+        && request.resource.data.endedAt == null
+        && request.resource.data.expiresAt == null
+        && validRoomShape(request.resource.data)
+        && exists(/databases/$(database)/documents/allowedEmails/$(request.resource.data.organizerGrantId))
+        && get(/databases/$(database)/documents/allowedEmails/$(request.resource.data.organizerGrantId)).data.email == request.auth.token.email;
+
+      allow update: if signedIn()
+        && validRoomShape(request.resource.data)
+        && request.resource.data.revision == resource.data.revision + 1
+        && request.resource.data.hostUid == resource.data.hostUid
+        && request.resource.data.hostName == resource.data.hostName
+        && request.resource.data.hostEmail == resource.data.hostEmail
+        && request.resource.data.organizerGrantId == resource.data.organizerGrantId
+        && request.resource.data.schemaVersion == resource.data.schemaVersion
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          request.auth.uid == resource.data.hostUid
+          || (
+            resource.data.status == 'active'
+            && request.resource.data.status == 'active'
+            && request.resource.data.endedAt == resource.data.endedAt
+            && request.resource.data.expiresAt == resource.data.expiresAt
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['state', 'revision', 'updatedAt', 'lastEventId', 'undoStack'])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /roomMembers/{memberId} {
+      allow get: if signedIn() && resource.data.uid == request.auth.uid;
+      allow list: if false;
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['roomId', 'uid', 'displayName', 'joinedAt', 'expiresAt'])
+        && request.resource.data.roomId is string
+        && request.resource.data.uid == request.auth.uid
+        && memberId == request.resource.data.roomId + '_' + request.auth.uid
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0
+        && request.resource.data.displayName.size() <= 60
+        && request.resource.data.expiresAt is timestamp
+        && (exists(roomPath(request.resource.data.roomId)) || existsAfter(roomPath(request.resource.data.roomId)));
+      allow delete: if false;
+    }
+
+    match /roomEvents/{eventId} {
+      allow get: if signedIn() && isRoomMember(resource.data.roomId);
+      allow list: if signedIn() && isRoomMember(resource.data.roomId);
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll([
+          'roomId', 'revision', 'type', 'summary', 'actorUid', 'actorName',
+          'createdAt', 'expiresAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'roomId', 'revision', 'type', 'summary', 'actorUid', 'actorName',
+          'beforeState', 'createdAt', 'expiresAt'
+        ])
+        && request.resource.data.roomId is string
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorName is string
+        && request.resource.data.actorName.size() > 0
+        && request.resource.data.actorName.size() <= 60
+        && request.resource.data.type is string && request.resource.data.type.size() <= 40
+        && request.resource.data.summary is string && request.resource.data.summary.size() <= 300
+        && request.resource.data.revision is int
+        && request.resource.data.expiresAt is timestamp
+        && existsAfter(roomPath(request.resource.data.roomId))
+        && existsAfter(memberPath(request.resource.data.roomId, request.auth.uid))
+        && getAfter(roomPath(request.resource.data.roomId)).data.revision == request.resource.data.revision
+        && getAfter(roomPath(request.resource.data.roomId)).data.lastEventId == eventId;
+
+      allow update: if isHost(resource.data.roomId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])
+        && request.resource.data.expiresAt is timestamp;
+      allow delete: if false;
+    }
+  }
+}

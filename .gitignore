@@ -1,6 +1,11 @@
-
 *.html
 *.xml
 *.iml
 *.class
 *.kotlin_module
+node_modules/
+.firebase/
+firebase-debug.log
+.playwright-cli/
+output/
+*.local

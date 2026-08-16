@@ -1,0 +1,37 @@
+name: Verify live rotation
+
+on:
+  pull_request:
+    paths:
+      - "index.html"
+      - "app.js"
+      - "rotation-engine.js"
+      - "sw.js"
+      - "firestore.rules"
+      - "firestore.indexes.json"
+      - "firebase.json"
+      - "package.json"
+      - "package-lock.json"
+      - "tests/**"
+      - ".github/workflows/verify-live-rotation.yml"
+  push:
+    branches:
+      - "agent/live-shared-rotation"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:rules
