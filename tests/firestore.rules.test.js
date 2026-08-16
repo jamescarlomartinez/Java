@@ -149,6 +149,21 @@ test('organizer can end a room and guests cannot change lifecycle fields', { ski
   }));
 });
 
+test('expired room summaries remain readable but read-only until TTL deletion', { skip: !emulatorAvailable }, async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'rooms/room-expired'), room({
+      status: 'ended', revision: 3, endedAt: Timestamp.fromMillis(Date.now() - 86400000),
+      expiresAt: Timestamp.fromMillis(Date.now() - 1000), lastEventId: 'expired-event'
+    }));
+  });
+  const db = env.authenticatedContext('guest-1').firestore();
+  await assertSucceeds(getDoc(doc(db, 'rooms/room-expired')));
+  await assertFails(updateDoc(doc(db, 'rooms/room-expired'), {
+    state: { schemaVersion: 3, players: [] }, revision: 4,
+    lastEventId: 'too-late', undoStack: [], updatedAt: serverTimestamp()
+  }));
+});
+
 test('event actor UID must match the authenticated controller', { skip: !emulatorAvailable }, async () => {
   const db = env.authenticatedContext('guest-1').firestore();
   await assertFails(setDoc(doc(db, 'roomEvents/spoofed'), {
