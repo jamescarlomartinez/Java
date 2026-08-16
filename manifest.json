@@ -1,7 +1,7 @@
 {
   "name": "Pickleball Game Rotation by James Martinez",
   "short_name": "Pickleball",
-  "description": "Manage pickleball player rotation for multiple courts — fair, fast, and mobile-friendly.",
+  "description": "Run fair pickleball rotations solo or share a live game that multiple phones can control.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

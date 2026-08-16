@@ -1,7 +1,9 @@
-const CACHE = 'pickleball-v9';
+const CACHE = 'pickleball-v11-roster-repair';
 const ASSETS = [
   './',
   './index.html',
+  './app.js',
+  './rotation-engine.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
@@ -27,9 +29,30 @@ self.addEventListener('activate', function(e) {
 });
 
 self.addEventListener('fetch', function(e) {
+  if (e.request.method !== 'GET') return;
+
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request).then(function(response) {
+        var copy = response.clone();
+        caches.open(CACHE).then(function(cache) { cache.put('./index.html', copy); });
+        return response;
+      }).catch(function() { return caches.match('./index.html'); })
+    );
+    return;
+  }
+
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request).then(function(hit) {
-      return hit || fetch(e.request);
+      if (hit) return hit;
+      return fetch(e.request).then(function(response) {
+        if (response.ok) {
+          var copy = response.clone();
+          caches.open(CACHE).then(function(cache) { cache.put(e.request, copy); });
+        }
+        return response;
+      });
     })
   );
 });
