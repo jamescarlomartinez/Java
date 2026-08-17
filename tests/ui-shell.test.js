@@ -59,6 +59,10 @@ test('player QR check-in supports creating and claiming a new roster name', () =
   assert.match(app, /Add & Check In/);
   assert.match(app, /player_self_enrolled/);
   assert.match(app, /Engine\.enrollPlayer/);
+  assert.match(app, /What is your current skill rating\?/);
+  assert.match(app, /pendingPlayerSkillRating/);
+  assert.match(app, /Engine\.setSelfSkillRating/);
+  assert.match(app, /My Skill/);
 });
 
 test('footer exposes the current version and a forced update control', () => {
@@ -75,7 +79,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v17-version-updater/);
+  assert.match(serviceWorker, /pickleball-v18-player-skill-rating/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);

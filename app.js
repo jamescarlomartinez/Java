@@ -1,7 +1,7 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
-var APP_VERSION = '3.1.0';
+var APP_VERSION = '3.2.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -21,6 +21,7 @@ var requestedMode = queryParams.get('mode');
 var accessMode = roomId ? (requestedMode === 'player' ? 'player' : requestedMode === 'view' ? 'viewer' : 'controller') : 'solo';
 var linkedPlayerId = null;
 var pendingPlayerEnrollment = null;
+var pendingPlayerSkillRating = null;
 var roomRef = null;
 var roomData = null;
 var currentUser = null;
@@ -302,8 +303,31 @@ function ensureControllerName(user) {
   });
 }
 
+function skillRatingQuestion(selectedRating) {
+  var ratings = [];
+  for (var rating = 1; rating <= 5; rating += 0.5) ratings.push(rating.toFixed(1));
+  return '<fieldset class="skill-question"><legend>What is your current skill rating?</legend>'
+    + '<div class="field-help">1.0 is beginner and 5.0 is advanced. Skill Balanced mode uses this to make closer teams.</div>'
+    + '<div class="skill-picker" role="radiogroup" aria-label="Skill rating">' + ratings.map(function (value) {
+      return '<button class="picker-option' + (Number(value) === selectedRating ? ' is-selected' : '') + '" data-skill-choice="' + value + '" type="button" role="radio" aria-checked="' + (Number(value) === selectedRating ? 'true' : 'false') + '">⭐ ' + value + '</button>';
+    }).join('') + '</div></fieldset>';
+}
+
+function bindSkillRatingQuestion(container, onChange) {
+  container.querySelectorAll('[data-skill-choice]').forEach(function (button) {
+    button.onclick = function () {
+      container.querySelectorAll('[data-skill-choice]').forEach(function (option) {
+        option.classList.toggle('is-selected', option === button);
+        option.setAttribute('aria-checked', option === button ? 'true' : 'false');
+      });
+      onChange(Number(button.dataset.skillChoice));
+    };
+  });
+}
+
 function ensurePlayerIdentity() {
   S = Engine.normalizeState(roomData.state);
+  pendingPlayerSkillRating = null;
   var saved = localStorage.getItem(playerStorageKey());
   var savedPlayer = Engine.playerById(S, saved);
   if (savedPlayer && (!savedPlayer.checkedInUid || savedPlayer.checkedInUid === currentUser.uid)) {
@@ -330,27 +354,57 @@ function ensurePlayerIdentity() {
       });
       modal.body.querySelectorAll('[data-player-id]').forEach(function (button) {
         button.onclick = function () {
-          pendingPlayerEnrollment = null;
-          linkedPlayerId = button.dataset.playerId;
-          var player = Engine.playerById(S, linkedPlayerId);
-          controllerName = player ? player.name : 'Player';
-          localStorage.setItem(playerStorageKey(), linkedPlayerId);
-          closeModal();
-          resolve(player);
+          var player = Engine.playerById(S, button.dataset.playerId);
+          if (player) showExistingPlayerForm(player);
         };
       });
       document.getElementById('selfEnrollBtn').onclick = showEnrollmentForm;
     }
 
+    function finishIdentity(player, skillRating, enrollment) {
+      pendingPlayerEnrollment = enrollment || null;
+      pendingPlayerSkillRating = skillRating;
+      linkedPlayerId = player.id;
+      controllerName = player.name;
+      localStorage.setItem(playerStorageKey(), linkedPlayerId);
+      closeModal();
+      resolve(player);
+    }
+
+    function showExistingPlayerForm(player) {
+      var selectedRating = player.skillRating;
+      var modal = openModal({
+        title: 'Check in as ' + player.name,
+        copy: 'Confirm your name and skill rating before joining the rotation.',
+        body: '<div class="identity-summary"><span>Player name</span><strong>' + esc(player.name) + '</strong></div>'
+          + skillRatingQuestion(selectedRating),
+        closable: false
+      });
+      bindSkillRatingQuestion(modal.body, function (rating) { selectedRating = rating; });
+      var back = document.createElement('button');
+      back.className = 'btn btn-ghost';
+      back.textContent = '← Back';
+      back.onclick = showPicker;
+      var join = document.createElement('button');
+      join.className = 'btn btn-primary';
+      join.textContent = 'Check In';
+      join.onclick = function () { finishIdentity(player, selectedRating, null); };
+      modal.actions.appendChild(back);
+      modal.actions.appendChild(join);
+    }
+
     function showEnrollmentForm() {
+      var selectedRating = 3;
       var modal = openModal({
         title: 'Add yourself',
-        copy: 'Enter the player name everyone will see in the rotation.',
+        copy: 'Enter the name and rating everyone will see in the rotation.',
         body: '<label class="modal-label" for="selfEnrollName">Your player name</label>'
           + '<input class="modal-field" id="selfEnrollName" maxlength="50" autocomplete="name" placeholder="Enter your name">'
+          + skillRatingQuestion(selectedRating)
           + '<div class="modal-inline-error" id="selfEnrollError" role="alert"></div>',
         closable: false
       });
+      bindSkillRatingQuestion(modal.body, function (rating) { selectedRating = rating; });
       var input = document.getElementById('selfEnrollName');
       var error = document.getElementById('selfEnrollError');
       var back = document.createElement('button');
@@ -371,12 +425,8 @@ function ensurePlayerIdentity() {
           input.focus();
           return;
         }
-        pendingPlayerEnrollment = { id: Engine.makeId('p'), name: name };
-        linkedPlayerId = pendingPlayerEnrollment.id;
-        controllerName = name;
-        localStorage.setItem(playerStorageKey(), linkedPlayerId);
-        closeModal();
-        resolve(pendingPlayerEnrollment);
+        var enrollment = { id: Engine.makeId('p'), name: name, skillRating: selectedRating };
+        finishIdentity(enrollment, selectedRating, enrollment);
       }
       join.onclick = submit;
       input.oninput = function () { error.textContent = ''; };
@@ -394,7 +444,7 @@ function enrollLinkedPlayer() {
   var enrollment = pendingPlayerEnrollment;
   if (!enrollment) return Promise.resolve(null);
   return runAction('player_self_enrolled', function (state) {
-    var result = Engine.enrollPlayer(state, enrollment.name, currentUser.uid, controllerName, enrollment.id);
+    var result = Engine.enrollPlayer(state, enrollment.name, currentUser.uid, controllerName, enrollment.id, enrollment.skillRating);
     if (!result.changed) return result;
     return {
       changed: true,
@@ -403,7 +453,10 @@ function enrollLinkedPlayer() {
       summary: result.player.name + ' added themselves and checked in'
     };
   }, { selfService: true, undoable: false }).then(function (result) {
-    if (result && result.changed) pendingPlayerEnrollment = null;
+    if (result && result.changed) {
+      pendingPlayerEnrollment = null;
+      pendingPlayerSkillRating = null;
+    }
     return result;
   });
 }
@@ -544,7 +597,7 @@ function runAction(type, reducer, options) {
   if (!navigator.onLine) { showToast('Reconnect to control the shared game.'); return Promise.resolve(null); }
   if (!roomData || roomData.status !== 'active') { showToast('This shared session is read-only.'); return Promise.resolve(null); }
   if (accessMode === 'viewer' && !isOrganizer) { showToast('This is a view-only link.'); return Promise.resolve(null); }
-  if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only change your own availability.'); return Promise.resolve(null); }
+  if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only change your own availability and skill rating.'); return Promise.resolve(null); }
   if (options.hostOnly && !isOrganizer) { showToast('Only the organizer can do that.'); return Promise.resolve(null); }
 
   sharedBusy = true;
@@ -821,14 +874,17 @@ function skipPlayer(courtIndex, team, playerIndex) {
 function checkInLinkedPlayer(silent) {
   if (!linkedPlayerId || !currentUser) return Promise.resolve(null);
   return runAction('player_checked_in', function (state) {
-    var result = Engine.checkInPlayer(state, linkedPlayerId, currentUser.uid, controllerName);
+    var result = Engine.checkInPlayer(state, linkedPlayerId, currentUser.uid, controllerName, pendingPlayerSkillRating);
     if (!result.changed) return result;
     return {
       changed: true,
       message: silent ? '' : result.player.name + ' is checked in.',
-      summary: result.player.name + ' checked in'
+      summary: result.player.name + ' checked in with a ' + result.player.skillRating.toFixed(1) + ' skill rating'
     };
-  }, { selfService: true, undoable: false });
+  }, { selfService: true, undoable: false }).then(function (result) {
+    if (result && result.changed) pendingPlayerSkillRating = null;
+    return result;
+  });
 }
 
 function toggleMyAvailability() {
@@ -847,30 +903,33 @@ function toggleMyAvailability() {
 }
 
 function openSkillPicker(playerId) {
-  if (!isFullController()) return;
+  var isSelfEdit = accessMode === 'player' && !isOrganizer && linkedPlayerId === playerId && !!currentUser;
+  if (!isFullController() && !isSelfEdit) return;
   var player = Engine.playerById(S, playerId);
   if (!player) return;
-  var ratings = [];
-  for (var rating = 1; rating <= 5; rating += 0.5) ratings.push(rating.toFixed(1));
   var modal = openModal({
     title: 'Skill rating · ' + player.name,
-    copy: '1.0 is beginner and 5.0 is advanced. Ratings are used only in Skill Balanced mode.',
-    body: '<div class="skill-picker">' + ratings.map(function (value) {
-      return '<button class="picker-option' + (Number(value) === player.skillRating ? ' is-selected' : '') + '" data-rating="' + value + '" type="button">⭐ ' + value + '</button>';
-    }).join('') + '</div>'
+    copy: 'Update this anytime. The new rating is used the next time Skill Balanced mode generates a game.',
+    body: skillRatingQuestion(player.skillRating)
   });
-  modal.body.querySelectorAll('[data-rating]').forEach(function (button) {
-    button.onclick = function () {
-      var nextRating = Number(button.dataset.rating);
-      closeModal();
-      runAction('player_skill_changed', function (state) {
-        var target = Engine.playerById(state, playerId);
-        if (!target) return { changed: false, reason: 'Player not found.' };
-        if (target.skillRating === nextRating) return { changed: false, reason: 'Skill rating is already ' + nextRating.toFixed(1) + '.' };
-        target.skillRating = nextRating;
-        return { changed: true, message: target.name + ' is now rated ' + nextRating.toFixed(1) + '.', summary: 'Rated ' + target.name + ' at ' + nextRating.toFixed(1) };
-      });
-    };
+  bindSkillRatingQuestion(modal.body, function (nextRating) {
+    closeModal();
+    runAction(isSelfEdit ? 'player_self_skill_changed' : 'player_skill_changed', function (state) {
+      if (isSelfEdit) {
+        var selfResult = Engine.setSelfSkillRating(state, playerId, currentUser.uid, nextRating);
+        if (!selfResult.changed) return selfResult;
+        return {
+          changed: true,
+          message: 'Your skill rating is now ' + nextRating.toFixed(1) + '.',
+          summary: selfResult.player.name + ' updated their skill rating to ' + nextRating.toFixed(1)
+        };
+      }
+      var target = Engine.playerById(state, playerId);
+      if (!target) return { changed: false, reason: 'Player not found.' };
+      if (target.skillRating === nextRating) return { changed: false, reason: 'Skill rating is already ' + nextRating.toFixed(1) + '.' };
+      target.skillRating = nextRating;
+      return { changed: true, message: target.name + ' is now rated ' + nextRating.toFixed(1) + '.', summary: 'Rated ' + target.name + ' at ' + nextRating.toFixed(1) };
+    }, isSelfEdit ? { selfService: true, undoable: false } : {});
   });
 }
 
@@ -1154,7 +1213,9 @@ function renderSessionCard() {
       + (isOrganizer && roomData && roomData.status === 'active' ? '<button class="btn btn-danger" onclick="endSharedRoom()">End Session</button>' : '');
   } else if (accessMode === 'player') {
     actions = '<button class="btn ' + (player && player.notAvailable ? 'btn-primary' : 'btn-accent') + '" onclick="toggleMyAvailability()" '
-      + (sessionDisabled ? 'disabled' : '') + '>' + (player && player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>';
+      + (sessionDisabled ? 'disabled' : '') + '>' + (player && player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
+      + (player ? '<button class="btn btn-ghost" onclick="openSkillPicker(\'' + esc(player.id) + '\')" '
+        + (sessionDisabled ? 'disabled' : '') + '>⭐ My Skill ' + player.skillRating.toFixed(1) + '</button>' : '');
   }
   card.innerHTML = '<div class="session-top"><div><div class="session-title">' + esc(roomData ? roomData.name : 'Live game') + '</div>'
     + '<div class="session-sub">Live shared rotation · ' + esc(roleText) + '</div></div>'

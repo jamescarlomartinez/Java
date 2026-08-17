@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v17-version-updater';
+const CACHE = 'pickleball-v18-player-skill-rating';
 const ASSETS = [
   './',
   './index.html',
