@@ -382,6 +382,13 @@
     .picker-option:active { filter: brightness(1.2); }
     .picker-option:disabled { opacity: .45; cursor: not-allowed; }
     .picker-option.is-selected { border-color: var(--accent); color: var(--accent); }
+    .self-enroll-divider { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: .72rem; margin: 12px 0; text-transform: uppercase; letter-spacing: .8px; }
+    .self-enroll-divider::before, .self-enroll-divider::after { content: ''; height: 1px; flex: 1; background: var(--border); }
+    .self-enroll-option { display: grid; gap: 4px; border-style: dashed; border-color: var(--primary-light); background: rgba(52,211,153,.06); }
+    .self-enroll-option small { color: var(--text-muted); font-size: .74rem; font-weight: 600; }
+    .self-enroll-empty { padding-block: 10px; }
+    .modal-label { display: block; color: var(--text); font-size: .78rem; font-weight: 800; margin-bottom: 7px; }
+    .modal-inline-error { min-height: 20px; color: #ff8a8a; font-size: .75rem; line-height: 1.35; padding-top: 6px; }
     .replacement-option { display: grid; gap: 5px; min-height: 62px; }
     .replacement-main { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0; }
     .replacement-main strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

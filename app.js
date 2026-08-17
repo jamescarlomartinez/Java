@@ -14,6 +14,7 @@ var roomId = queryParams.get(ROOM_PARAM);
 var requestedMode = queryParams.get('mode');
 var accessMode = roomId ? (requestedMode === 'player' ? 'player' : requestedMode === 'view' ? 'viewer' : 'controller') : 'solo';
 var linkedPlayerId = null;
+var pendingPlayerEnrollment = null;
 var roomRef = null;
 var roomData = null;
 var currentUser = null;
@@ -228,32 +229,100 @@ function ensurePlayerIdentity() {
     controllerName = savedPlayer.name;
     return Promise.resolve(savedPlayer);
   }
-  if (!S.players.length) return Promise.reject(new Error('No players have been added to this game yet. Ask the organizer to add the roster first.'));
-  if (!S.players.some(function (player) { return !player.checkedInUid || player.checkedInUid === currentUser.uid; })) {
-    return Promise.reject(new Error('Every roster name is already checked in. Ask the organizer to add your name.'));
-  }
   return new Promise(function (resolve) {
-    var options = S.players.map(function (player) {
-      var claimed = player.checkedInUid && player.checkedInUid !== currentUser.uid;
-      return '<button class="picker-option" type="button" data-player-id="' + esc(player.id) + '" ' + (claimed ? 'disabled' : '') + '>'
-        + '<strong>' + esc(player.name) + '</strong>' + (claimed ? ' · already checked in' : '') + '</button>';
-    }).join('');
-    var modal = openModal({
-      title: 'Who are you?',
-      copy: 'Choose your name to check in and manage only your own availability.',
-      body: S.players.length ? '<div class="picker-list">' + options + '</div>' : '<div class="empty-hint">The organizer has not added any players yet.</div>',
-      closable: false
-    });
-    modal.body.querySelectorAll('[data-player-id]').forEach(function (button) {
-      button.onclick = function () {
-        linkedPlayerId = button.dataset.playerId;
-        var player = Engine.playerById(S, linkedPlayerId);
-        controllerName = player ? player.name : 'Player';
+    function showPicker() {
+      var options = S.players.map(function (player) {
+        var claimed = player.checkedInUid && player.checkedInUid !== currentUser.uid;
+        return '<button class="picker-option" type="button" data-player-id="' + esc(player.id) + '" ' + (claimed ? 'disabled' : '') + '>'
+          + '<strong>' + esc(player.name) + '</strong>' + (claimed ? ' · already checked in' : '') + '</button>';
+      }).join('');
+      var addMyself = '<button class="picker-option self-enroll-option" id="selfEnrollBtn" type="button"><strong>＋ Add myself to this game</strong><small>Create your own player name and check in</small></button>';
+      var roster = S.players.length
+        ? addMyself + '<div class="self-enroll-divider"><span>or choose a listed name</span></div><div class="picker-list">' + options + '</div>'
+        : '<div class="empty-hint self-enroll-empty">No players are listed yet. Add yourself to start the roster.</div>' + addMyself;
+      var modal = openModal({
+        title: 'Who are you?',
+        copy: 'Choose your name, or add yourself if you are not listed.',
+        body: roster,
+        closable: false
+      });
+      modal.body.querySelectorAll('[data-player-id]').forEach(function (button) {
+        button.onclick = function () {
+          pendingPlayerEnrollment = null;
+          linkedPlayerId = button.dataset.playerId;
+          var player = Engine.playerById(S, linkedPlayerId);
+          controllerName = player ? player.name : 'Player';
+          localStorage.setItem(playerStorageKey(), linkedPlayerId);
+          closeModal();
+          resolve(player);
+        };
+      });
+      document.getElementById('selfEnrollBtn').onclick = showEnrollmentForm;
+    }
+
+    function showEnrollmentForm() {
+      var modal = openModal({
+        title: 'Add yourself',
+        copy: 'Enter the player name everyone will see in the rotation.',
+        body: '<label class="modal-label" for="selfEnrollName">Your player name</label>'
+          + '<input class="modal-field" id="selfEnrollName" maxlength="50" autocomplete="name" placeholder="Enter your name">'
+          + '<div class="modal-inline-error" id="selfEnrollError" role="alert"></div>',
+        closable: false
+      });
+      var input = document.getElementById('selfEnrollName');
+      var error = document.getElementById('selfEnrollError');
+      var back = document.createElement('button');
+      back.className = 'btn btn-ghost';
+      back.textContent = '← Back';
+      back.onclick = showPicker;
+      var join = document.createElement('button');
+      join.className = 'btn btn-primary';
+      join.textContent = 'Add & Check In';
+      function submit() {
+        var name = input.value.trim();
+        var duplicate = S.players.find(function (player) { return player.name.toLowerCase() === name.toLowerCase(); });
+        if (!name) { error.textContent = 'Enter your player name.'; input.focus(); return; }
+        if (duplicate) {
+          error.textContent = duplicate.checkedInUid
+            ? 'That name is already checked in. Use a distinct player name.'
+            : 'That name is already listed. Go back and choose it.';
+          input.focus();
+          return;
+        }
+        pendingPlayerEnrollment = { id: Engine.makeId('p'), name: name };
+        linkedPlayerId = pendingPlayerEnrollment.id;
+        controllerName = name;
         localStorage.setItem(playerStorageKey(), linkedPlayerId);
         closeModal();
-        resolve(player);
-      };
-    });
+        resolve(pendingPlayerEnrollment);
+      }
+      join.onclick = submit;
+      input.oninput = function () { error.textContent = ''; };
+      input.onkeydown = function (event) { if (event.key === 'Enter') { event.preventDefault(); submit(); } };
+      modal.actions.appendChild(back);
+      modal.actions.appendChild(join);
+      setTimeout(function () { input.focus(); }, 30);
+    }
+
+    showPicker();
+  });
+}
+
+function enrollLinkedPlayer() {
+  var enrollment = pendingPlayerEnrollment;
+  if (!enrollment) return Promise.resolve(null);
+  return runAction('player_self_enrolled', function (state) {
+    var result = Engine.enrollPlayer(state, enrollment.name, currentUser.uid, controllerName, enrollment.id);
+    if (!result.changed) return result;
+    return {
+      changed: true,
+      player: result.player,
+      message: 'You are checked in as ' + result.player.name + '.',
+      summary: result.player.name + ' added themselves and checked in'
+    };
+  }, { selfService: true, undoable: false }).then(function (result) {
+    if (result && result.changed) pendingPlayerEnrollment = null;
+    return result;
   });
 }
 
@@ -300,6 +369,12 @@ function initSharedRoom(user) {
       }, { merge: true });
   }).then(function () {
     if (accessMode !== 'player') return null;
+    if (pendingPlayerEnrollment) {
+      return enrollLinkedPlayer().then(function (result) {
+        if (!result) throw new Error('Your player name could not be added. Refresh the link and try again.');
+        return result;
+      });
+    }
     var player = Engine.playerById(S, linkedPlayerId);
     if (player && player.checkedIn && player.checkedInUid === currentUser.uid && !player.notAvailable) return player;
     return checkInLinkedPlayer(true).then(function (result) {
@@ -853,7 +928,7 @@ function openAccessLinks() {
       + '<button class="access-tab" type="button" data-access-mode="controller">🎛 Controller</button></div>'
       + '<div class="qr-shell"><canvas id="accessQrCanvas" class="qr-canvas" aria-label="QR code"></canvas>'
       + '<div class="qr-link-label" id="accessLinkLabel"></div><div class="qr-url" id="accessLinkUrl"></div></div>'
-      + '<div class="access-note">Anyone with the controller link can control the game. View-only and player modes are simplified links, not password-protected roles.</div>'
+      + '<div class="access-note">Player link guests can choose an existing roster name or add themselves. Anyone with the controller link can control the game. These links are not password-protected roles.</div>'
   });
   modal.body.querySelectorAll('[data-access-mode]').forEach(function (button) {
     button.onclick = function () { renderAccessQr(button.dataset.accessMode); };

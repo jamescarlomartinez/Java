@@ -106,6 +106,50 @@ test('anonymous players and viewers can register their requested room role', { s
   }
 });
 
+test('a player-link guest can atomically add and claim their own roster entry', { skip: !emulatorAvailable }, async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'rooms/room-self-enroll'), room({
+      name: 'Self enrollment room',
+      state: { schemaVersion: 4, players: [] },
+      lastEventId: 'self-seed'
+    }));
+  });
+  const uid = 'self-enroller';
+  const playerId = 'p-self';
+  const db = env.authenticatedContext(uid, { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+  await assertSucceeds(setDoc(doc(db, `roomMembers/room-self-enroll_${uid}`), {
+    roomId: 'room-self-enroll', uid, displayName: 'Jordan', role: 'player', playerId,
+    joinedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+  }));
+
+  const roomRef = doc(db, 'rooms/room-self-enroll');
+  const eventRef = doc(db, 'roomEvents/self-enrolled-event');
+  await assertSucceeds(runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(roomRef);
+    const data = snapshot.data();
+    const beforeState = data.state;
+    const nextState = JSON.parse(JSON.stringify(beforeState));
+    nextState.players.push({
+      id: playerId, name: 'Jordan', games: 0, wins: 0, notAvailable: false,
+      skillRating: 3, checkedIn: true, checkedInUid: uid, checkedInName: 'Jordan', lastAssignedRound: -1
+    });
+    const nextRevision = data.revision + 1;
+    transaction.update(roomRef, {
+      state: nextState, revision: nextRevision, lastEventId: eventRef.id,
+      undoStack: data.undoStack || [], updatedAt: serverTimestamp()
+    });
+    transaction.set(eventRef, {
+      roomId: 'room-self-enroll', revision: nextRevision, type: 'player_self_enrolled',
+      summary: 'Jordan added themselves and checked in', actorUid: uid, actorName: 'Jordan',
+      beforeState, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+  }));
+
+  const updated = (await getDoc(roomRef)).data();
+  assert.equal(updated.state.players[0].name, 'Jordan');
+  assert.equal(updated.state.players[0].checkedInUid, uid);
+});
+
 test('a guest cannot claim the organizer membership role', { skip: !emulatorAvailable }, async () => {
   const db = env.authenticatedContext('organizer-spoof', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
   await assertFails(setDoc(doc(db, 'roomMembers/room-secret_organizer-spoof'), {
