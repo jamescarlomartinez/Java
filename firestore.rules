@@ -94,13 +94,22 @@ service cloud.firestore {
       allow get: if signedIn() && resource.data.uid == request.auth.uid;
       allow list: if false;
       allow create, update: if signedIn()
-        && request.resource.data.keys().hasOnly(['roomId', 'uid', 'displayName', 'joinedAt', 'expiresAt'])
+        && request.resource.data.keys().hasOnly(['roomId', 'uid', 'displayName', 'role', 'playerId', 'joinedAt', 'expiresAt'])
         && request.resource.data.roomId is string
         && request.resource.data.uid == request.auth.uid
         && memberId == request.resource.data.roomId + '_' + request.auth.uid
         && request.resource.data.displayName is string
         && request.resource.data.displayName.size() > 0
         && request.resource.data.displayName.size() <= 60
+        && (!request.resource.data.keys().hasAny(['role'])
+          || request.resource.data.role in ['organizer', 'controller', 'player', 'viewer'])
+        && (!request.resource.data.keys().hasAny(['playerId'])
+          || request.resource.data.playerId == null
+          || request.resource.data.playerId is string)
+        && (!request.resource.data.keys().hasAny(['role'])
+          || request.resource.data.role != 'organizer'
+          || (existsAfter(roomPath(request.resource.data.roomId))
+            && getAfter(roomPath(request.resource.data.roomId)).data.hostUid == request.auth.uid))
         && request.resource.data.expiresAt is timestamp
         && (exists(roomPath(request.resource.data.roomId)) || existsAfter(roomPath(request.resource.data.roomId)));
       allow delete: if false;

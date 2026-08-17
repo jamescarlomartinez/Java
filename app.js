@@ -9,7 +9,11 @@ var UNDO_LIMIT = 10;
 var THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 
 var S = Engine.createState(2);
-var roomId = new URLSearchParams(window.location.search).get(ROOM_PARAM);
+var queryParams = new URLSearchParams(window.location.search);
+var roomId = queryParams.get(ROOM_PARAM);
+var requestedMode = queryParams.get('mode');
+var accessMode = roomId ? (requestedMode === 'player' ? 'player' : requestedMode === 'view' ? 'viewer' : 'controller') : 'solo';
+var linkedPlayerId = null;
 var roomRef = null;
 var roomData = null;
 var currentUser = null;
@@ -179,6 +183,19 @@ function controllerStorageKey() {
   return 'pickleballController_' + roomId;
 }
 
+function playerStorageKey() {
+  return 'pickleballPlayer_' + roomId;
+}
+
+function isFullController() {
+  return !roomId || isOrganizer || accessMode === 'controller';
+}
+
+function membershipRole() {
+  if (isOrganizer) return 'organizer';
+  return accessMode;
+}
+
 function ensureControllerName(user) {
   var saved = localStorage.getItem(controllerStorageKey());
   var suggestion = saved || (user && user.displayName) || '';
@@ -200,6 +217,44 @@ function ensureControllerName(user) {
   });
 }
 
+function ensurePlayerIdentity() {
+  S = Engine.normalizeState(roomData.state);
+  var saved = localStorage.getItem(playerStorageKey());
+  var savedPlayer = Engine.playerById(S, saved);
+  if (savedPlayer && (!savedPlayer.checkedInUid || savedPlayer.checkedInUid === currentUser.uid)) {
+    linkedPlayerId = savedPlayer.id;
+    controllerName = savedPlayer.name;
+    return Promise.resolve(savedPlayer);
+  }
+  if (!S.players.length) return Promise.reject(new Error('No players have been added to this game yet. Ask the organizer to add the roster first.'));
+  if (!S.players.some(function (player) { return !player.checkedInUid || player.checkedInUid === currentUser.uid; })) {
+    return Promise.reject(new Error('Every roster name is already checked in. Ask the organizer to add your name.'));
+  }
+  return new Promise(function (resolve) {
+    var options = S.players.map(function (player) {
+      var claimed = player.checkedInUid && player.checkedInUid !== currentUser.uid;
+      return '<button class="picker-option" type="button" data-player-id="' + esc(player.id) + '" ' + (claimed ? 'disabled' : '') + '>'
+        + '<strong>' + esc(player.name) + '</strong>' + (claimed ? ' · already checked in' : '') + '</button>';
+    }).join('');
+    var modal = openModal({
+      title: 'Who are you?',
+      copy: 'Choose your name to check in and manage only your own availability.',
+      body: S.players.length ? '<div class="picker-list">' + options + '</div>' : '<div class="empty-hint">The organizer has not added any players yet.</div>',
+      closable: false
+    });
+    modal.body.querySelectorAll('[data-player-id]').forEach(function (button) {
+      button.onclick = function () {
+        linkedPlayerId = button.dataset.playerId;
+        var player = Engine.playerById(S, linkedPlayerId);
+        controllerName = player ? player.name : 'Player';
+        localStorage.setItem(playerStorageKey(), linkedPlayerId);
+        closeModal();
+        resolve(player);
+      };
+    });
+  });
+}
+
 function initSolo() {
   roomId = null;
   S = loadLocalState();
@@ -216,29 +271,49 @@ function initSharedRoom(user) {
   setAuthMessage('Joining live game', 'Connecting to the shared rotation…', false);
   currentUser = user;
   roomRef = fbDb.collection('rooms').doc(roomId);
-  ensureControllerName(user).then(function () {
-    roomRef.get().then(function (snapshot) {
-      if (!snapshot.exists) throw new Error('This shared game does not exist or has expired.');
-      roomData = snapshot.data();
-      isOrganizer = roomData.hostUid === currentUser.uid;
-      return fbDb.collection('roomMembers').doc(roomId + '_' + currentUser.uid).set({
+  roomRef.get().then(function (snapshot) {
+    if (!snapshot.exists) throw new Error('This shared game does not exist or has expired.');
+    roomData = snapshot.data();
+    S = Engine.normalizeState(roomData.state);
+    isOrganizer = roomData.hostUid === currentUser.uid;
+    if (isOrganizer) accessMode = 'controller';
+    if (isOrganizer) {
+      controllerName = currentUser.displayName || currentUser.email || roomData.hostName || 'Organizer';
+      return Promise.resolve();
+    }
+    if (accessMode === 'viewer') {
+      controllerName = 'Viewer';
+      return Promise.resolve();
+    }
+    return accessMode === 'player' ? ensurePlayerIdentity() : ensureControllerName(user);
+  }).then(function () {
+    return fbDb.collection('roomMembers').doc(roomId + '_' + currentUser.uid).set({
         roomId: roomId,
         uid: currentUser.uid,
         displayName: controllerName,
+        role: membershipRole(),
+        playerId: linkedPlayerId,
         joinedAt: FieldValue.serverTimestamp(),
         expiresAt: eventExpiry()
       }, { merge: true });
-    }).then(function () {
+  }).then(function () {
+    if (accessMode !== 'player') return null;
+    var player = Engine.playerById(S, linkedPlayerId);
+    if (player && player.checkedIn && player.checkedInUid === currentUser.uid && !player.notAvailable) return player;
+    return checkInLinkedPlayer(true).then(function (result) {
+      if (!result) throw new Error('That player could not be checked in. Refresh the link and choose again.');
+      return result;
+    });
+  }).then(function () {
       hideAuth();
       document.getElementById('signOutWrap').style.display = 'block';
       initUi();
       subscribeToRoom();
       subscribeToEvents();
-    }).catch(function (error) {
-      appInitialised = false;
-      setAuthMessage('Could not join game', error.message || 'The shared room is unavailable.', false);
-      showAuthError(error.message || 'The shared room is unavailable.');
-    });
+  }).catch(function (error) {
+    appInitialised = false;
+    setAuthMessage('Could not join game', error.message || 'The shared room is unavailable.', false);
+    showAuthError(error.message || 'The shared room is unavailable.');
   });
 }
 
@@ -309,6 +384,8 @@ function runAction(type, reducer, options) {
   }
   if (!navigator.onLine) { showToast('Reconnect to control the shared game.'); return Promise.resolve(null); }
   if (!roomData || roomData.status !== 'active') { showToast('This shared session is read-only.'); return Promise.resolve(null); }
+  if (accessMode === 'viewer' && !isOrganizer) { showToast('This is a view-only link.'); return Promise.resolve(null); }
+  if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only change your own availability.'); return Promise.resolve(null); }
   if (options.hostOnly && !isOrganizer) { showToast('Only the organizer can do that.'); return Promise.resolve(null); }
 
   sharedBusy = true;
@@ -374,7 +451,10 @@ function addPlayer() {
     if (state.players.some(function (player) { return player.name.toLowerCase() === name.toLowerCase(); })) {
       return { changed: false, reason: '"' + name + '" is already in the list.' };
     }
-    state.players.push({ id: Engine.makeId('p'), name: name, games: 0, wins: 0, notAvailable: false, lastAssignedRound: -1 });
+    state.players.push({
+      id: Engine.makeId('p'), name: name, games: 0, wins: 0, notAvailable: false,
+      skillRating: 3, checkedIn: false, checkedInUid: null, checkedInName: null, lastAssignedRound: -1
+    });
     return { changed: true, message: name + ' added.', summary: 'Added player ' + name };
   }).then(function (result) { if (result && result.changed) { input.value = ''; input.focus(); } });
 }
@@ -574,6 +654,75 @@ function skipPlayer(courtIndex, team, playerIndex) {
   replaceCurrentPlayer(courtIndex, team, playerIndex, replacementId);
 }
 
+function checkInLinkedPlayer(silent) {
+  if (!linkedPlayerId || !currentUser) return Promise.resolve(null);
+  return runAction('player_checked_in', function (state) {
+    var result = Engine.checkInPlayer(state, linkedPlayerId, currentUser.uid, controllerName);
+    if (!result.changed) return result;
+    return {
+      changed: true,
+      message: silent ? '' : result.player.name + ' is checked in.',
+      summary: result.player.name + ' checked in'
+    };
+  }, { selfService: true, undoable: false });
+}
+
+function toggleMyAvailability() {
+  var player = Engine.playerById(S, linkedPlayerId);
+  if (!player) { showToast('Your roster entry is no longer available.'); return; }
+  var nextUnavailable = !player.notAvailable;
+  runAction('player_self_availability', function (state) {
+    var result = Engine.setSelfAvailability(state, linkedPlayerId, currentUser.uid, nextUnavailable);
+    if (!result.changed) return result;
+    return {
+      changed: true,
+      message: result.player.name + (nextUnavailable ? ' is taking a break.' : ' is ready to play.'),
+      summary: result.player.name + (nextUnavailable ? ' took a break' : ' returned to the rotation')
+    };
+  }, { selfService: true, undoable: false });
+}
+
+function openSkillPicker(playerId) {
+  if (!isFullController()) return;
+  var player = Engine.playerById(S, playerId);
+  if (!player) return;
+  var ratings = [];
+  for (var rating = 1; rating <= 5; rating += 0.5) ratings.push(rating.toFixed(1));
+  var modal = openModal({
+    title: 'Skill rating · ' + player.name,
+    copy: '1.0 is beginner and 5.0 is advanced. Ratings are used only in Skill Balanced mode.',
+    body: '<div class="skill-picker">' + ratings.map(function (value) {
+      return '<button class="picker-option' + (Number(value) === player.skillRating ? ' is-selected' : '') + '" data-rating="' + value + '" type="button">⭐ ' + value + '</button>';
+    }).join('') + '</div>'
+  });
+  modal.body.querySelectorAll('[data-rating]').forEach(function (button) {
+    button.onclick = function () {
+      var nextRating = Number(button.dataset.rating);
+      closeModal();
+      runAction('player_skill_changed', function (state) {
+        var target = Engine.playerById(state, playerId);
+        if (!target) return { changed: false, reason: 'Player not found.' };
+        if (target.skillRating === nextRating) return { changed: false, reason: 'Skill rating is already ' + nextRating.toFixed(1) + '.' };
+        target.skillRating = nextRating;
+        return { changed: true, message: target.name + ' is now rated ' + nextRating.toFixed(1) + '.', summary: 'Rated ' + target.name + ' at ' + nextRating.toFixed(1) };
+      });
+    };
+  });
+}
+
+function setMatchmakingMode(mode) {
+  mode = mode === 'balanced' ? 'balanced' : 'social';
+  if (S.matchmakingMode === mode) return;
+  runAction('matchmaking_mode_changed', function (state) {
+    state.matchmakingMode = mode;
+    return {
+      changed: true,
+      message: mode === 'balanced' ? 'Skill Balanced rotation enabled.' : 'Social Fair rotation enabled.',
+      summary: 'Changed rotation style to ' + (mode === 'balanced' ? 'Skill Balanced' : 'Social Fair')
+    };
+  });
+}
+
 function createSharedRoom() {
   if (roomId || !currentUser || currentUser.isAnonymous) return;
   askText({
@@ -618,6 +767,8 @@ function createSharedRoom() {
       roomId: newRoomRef.id,
       uid: currentUser.uid,
       displayName: currentUser.displayName || currentUser.email || 'Organizer',
+      role: 'organizer',
+      playerId: null,
       joinedAt: FieldValue.serverTimestamp(),
       expiresAt: eventExpiry()
     });
@@ -633,28 +784,101 @@ function createSharedRoom() {
   });
 }
 
-function sharedRoomUrl() {
-  return window.location.origin + window.location.pathname + '?' + ROOM_PARAM + '=' + encodeURIComponent(roomId);
+function sharedRoomUrl(mode) {
+  var url = new URL(window.location.origin + window.location.pathname);
+  url.searchParams.set(ROOM_PARAM, roomId);
+  if (mode === 'player') url.searchParams.set('mode', 'player');
+  if (mode === 'viewer') url.searchParams.set('mode', 'view');
+  return url.toString();
 }
 
-function copyShareLink() {
-  var url = sharedRoomUrl();
+function accessLabel(mode) {
+  if (mode === 'player') return 'Player check-in';
+  if (mode === 'viewer') return 'View-only';
+  return 'Controller';
+}
+
+function copyShareLink(mode) {
+  var url = sharedRoomUrl(mode);
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(url).then(function () { showToast('Live game link copied.'); });
+    navigator.clipboard.writeText(url).then(function () { showToast(accessLabel(mode) + ' link copied.'); });
   } else {
     var textarea = document.createElement('textarea');
     textarea.value = url; document.body.appendChild(textarea); textarea.select(); document.execCommand('copy'); textarea.remove();
-    showToast('Live game link copied.');
+    showToast(accessLabel(mode) + ' link copied.');
   }
 }
 
-function shareRoomLink() {
-  var payload = { title: roomData ? roomData.name : 'Pickleball Game Rotation', text: 'Join and control our live pickleball rotation.', url: sharedRoomUrl() };
-  if (navigator.share) navigator.share(payload).catch(function (error) { if (error.name !== 'AbortError') copyShareLink(); });
-  else copyShareLink();
+function shareRoomLink(mode) {
+  var shareText = mode === 'player' ? 'Check in for our pickleball rotation.' : mode === 'viewer' ? 'Follow our live pickleball rotation.' : 'Join and control our live pickleball rotation.';
+  var payload = { title: roomData ? roomData.name : 'Pickleball Game Rotation', text: shareText, url: sharedRoomUrl(mode) };
+  if (navigator.share) navigator.share(payload).catch(function (error) { if (error.name !== 'AbortError') copyShareLink(mode); });
+  else copyShareLink(mode);
+}
+
+function renderAccessQr(mode) {
+  var url = sharedRoomUrl(mode);
+  document.querySelectorAll('[data-access-mode]').forEach(function (button) {
+    button.classList.toggle('is-selected', button.dataset.accessMode === mode);
+  });
+  document.getElementById('accessLinkLabel').textContent = accessLabel(mode) + ' link';
+  document.getElementById('accessLinkUrl').textContent = url;
+  document.getElementById('accessCopyBtn').onclick = function () { copyShareLink(mode); };
+  document.getElementById('accessShareBtn').onclick = function () { shareRoomLink(mode); };
+  var canvas = document.getElementById('accessQrCanvas');
+  if (!canvas || !window.QRCode) return;
+  window.QRCode.toCanvas(canvas, url, {
+    width: 220,
+    margin: 2,
+    errorCorrectionLevel: 'M',
+    color: { dark: '#092419', light: '#ffffff' }
+  }).catch(function () { showToast('Could not draw the QR code. The link is still available.'); });
+}
+
+function openAccessLinks() {
+  if (!roomId || !isFullController()) return;
+  var modal = openModal({
+    title: 'QR codes & access links',
+    copy: 'Choose what the link opens. Controller links keep full game controls; player and view-only links show simplified screens.',
+    body: '<div class="access-tabs">'
+      + '<button class="access-tab" type="button" data-access-mode="player">✓ Player Check-In</button>'
+      + '<button class="access-tab" type="button" data-access-mode="viewer">👁 View Only</button>'
+      + '<button class="access-tab" type="button" data-access-mode="controller">🎛 Controller</button></div>'
+      + '<div class="qr-shell"><canvas id="accessQrCanvas" class="qr-canvas" aria-label="QR code"></canvas>'
+      + '<div class="qr-link-label" id="accessLinkLabel"></div><div class="qr-url" id="accessLinkUrl"></div></div>'
+      + '<div class="access-note">Anyone with the controller link can control the game. View-only and player modes are simplified links, not password-protected roles.</div>'
+  });
+  modal.body.querySelectorAll('[data-access-mode]').forEach(function (button) {
+    button.onclick = function () { renderAccessQr(button.dataset.accessMode); };
+  });
+  var copyButton = document.createElement('button');
+  copyButton.id = 'accessCopyBtn'; copyButton.className = 'btn btn-ghost'; copyButton.textContent = '⧉ Copy Link';
+  var shareButton = document.createElement('button');
+  shareButton.id = 'accessShareBtn'; shareButton.className = 'btn btn-primary'; shareButton.textContent = '↗ Share';
+  modal.actions.appendChild(copyButton); modal.actions.appendChild(shareButton);
+  renderAccessQr('player');
 }
 
 function leaveSharedRoom() {
+  if (accessMode === 'player' && linkedPlayerId && currentUser) {
+    var player = Engine.playerById(S, linkedPlayerId);
+    if (player && player.checkedIn && player.checkedInUid === currentUser.uid) {
+      runAction('player_checked_out', function (state) {
+        var result = Engine.checkOutPlayer(state, linkedPlayerId, currentUser.uid);
+        if (!result.changed) return result;
+        return { changed: true, summary: result.player.name + ' checked out' };
+      }, { selfService: true, undoable: false }).then(function (result) {
+        if (!result) return;
+        localStorage.removeItem(playerStorageKey());
+        navigateHome();
+      });
+      return;
+    }
+  }
+  navigateHome();
+}
+
+function navigateHome() {
   if (roomUnsubscribe) roomUnsubscribe();
   if (eventsUnsubscribe) eventsUnsubscribe();
   window.location.href = window.location.pathname;
@@ -755,15 +979,24 @@ function renderSessionCard() {
   }
   var statusText = { connected: '● Connected', syncing: '↻ Syncing', offline: '○ Offline', error: '! Error', ended: '✓ Ended' }[syncStatus] || syncStatus;
   var undoDisabled = !isOrganizer || !roomData || !roomData.undoStack || !roomData.undoStack.length || roomData.status !== 'active';
+  var sessionDisabled = !navigator.onLine || sharedBusy || !roomData || roomData.status !== 'active';
+  var roleText = isOrganizer ? 'Organizer' : accessMode === 'player' ? 'Player check-in' : accessMode === 'viewer' ? 'View only' : 'Controller';
+  var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
+  var actions = '';
+  if (isFullController()) {
+    actions = '<button class="btn btn-primary" onclick="openAccessLinks()">▦ QR & Links</button>'
+      + '<button class="btn btn-ghost" onclick="shareRoomLink(\'controller\')">↗ Share Controller</button>'
+      + (isOrganizer ? '<button class="btn btn-ghost" onclick="undoLastAction()" ' + (undoDisabled ? 'disabled' : '') + '>↶ Undo</button>' : '')
+      + (isOrganizer && roomData && roomData.status === 'active' ? '<button class="btn btn-danger" onclick="endSharedRoom()">End Session</button>' : '');
+  } else if (accessMode === 'player') {
+    actions = '<button class="btn ' + (player && player.notAvailable ? 'btn-primary' : 'btn-accent') + '" onclick="toggleMyAvailability()" '
+      + (sessionDisabled ? 'disabled' : '') + '>' + (player && player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>';
+  }
   card.innerHTML = '<div class="session-top"><div><div class="session-title">' + esc(roomData ? roomData.name : 'Live game') + '</div>'
-    + '<div class="session-sub">Live shared rotation · ' + (isOrganizer ? 'You are the organizer' : 'Link controller') + '</div></div>'
+    + '<div class="session-sub">Live shared rotation · ' + esc(roleText) + '</div></div>'
     + '<span class="sync-badge ' + esc(syncStatus) + '">' + esc(statusText) + '</span></div>'
-    + '<div class="room-identity">Controlling as <strong>' + esc(controllerName || 'Guest') + '</strong></div>'
-    + '<div class="session-actions">'
-    + '<button class="btn btn-primary" onclick="shareRoomLink()">↗ Share</button>'
-    + '<button class="btn btn-ghost" onclick="copyShareLink()">⧉ Copy Link</button>'
-    + (isOrganizer ? '<button class="btn btn-ghost" onclick="undoLastAction()" ' + (undoDisabled ? 'disabled' : '') + '>↶ Undo</button>' : '')
-    + (isOrganizer && roomData && roomData.status === 'active' ? '<button class="btn btn-danger" onclick="endSharedRoom()">End Session</button>' : '')
+    + '<div class="room-identity">' + (accessMode === 'player' ? 'Checked in as ' : accessMode === 'viewer' ? 'Watching as ' : 'Controlling as ') + '<strong>' + esc(controllerName || 'Guest') + '</strong></div>'
+    + '<div class="session-actions">' + actions
     + '<button class="btn btn-ghost" onclick="leaveSharedRoom()">Leave</button>'
     + '</div>';
 }
@@ -774,16 +1007,32 @@ function renderPlayerList() {
   var locked = new Set(Engine.lockedIds(S));
   element.innerHTML = S.players.map(function (player, index) {
     var isLocked = locked.has(player.id);
-    var badges = isLocked ? '<span class="locked-badge">🔒 On Court</span>'
-      : player.notAvailable ? '<span class="na-tag">⛔ Not Available</span>'
-        : (player.wins ? '<span class="wins-badge">🏆 ' + player.wins + 'W</span>' : '')
-          + (player.games ? '<span class="games-badge">' + player.games + 'G</span>' : '');
-    var availability = isLocked ? '' : '<button class="btn-na' + (player.notAvailable ? ' is-na' : '') + '" onclick="toggleNotAvailable(' + index + ')">' + (player.notAvailable ? '✅ Back In' : '⛔ NA') + '</button>';
-    var remove = '<button class="btn btn-ghost btn-sm" ' + (isLocked ? 'disabled data-force-disabled' : 'onclick="removePlayer(' + index + ')"') + '>✕</button>';
+    var badges = (isLocked ? '<span class="locked-badge">🔒 On Court</span>' : player.notAvailable ? '<span class="na-tag">⛔ Not Available</span>' : '')
+      + (player.checkedIn ? '<span class="checkin-badge">✓ Checked In</span>' : '')
+      + (player.id === linkedPlayerId ? '<span class="you-badge">You</span>' : '')
+      + (!isLocked && !player.notAvailable && player.wins ? '<span class="wins-badge">🏆 ' + player.wins + 'W</span>' : '')
+      + (!isLocked && !player.notAvailable && player.games ? '<span class="games-badge">' + player.games + 'G</span>' : '');
+    var skill = S.matchmakingMode !== 'balanced' ? '' : isFullController()
+      ? '<button class="skill-badge" onclick="openSkillPicker(\'' + esc(player.id) + '\')" title="Edit skill rating">⭐ ' + player.skillRating.toFixed(1) + '</button>'
+      : '<span class="skill-badge is-static">⭐ ' + player.skillRating.toFixed(1) + '</span>';
+    var availability = !isFullController() || isLocked ? '' : '<button class="btn-na' + (player.notAvailable ? ' is-na' : '') + '" onclick="toggleNotAvailable(' + index + ')">' + (player.notAvailable ? '✅ Back In' : '⛔ NA') + '</button>';
+    var remove = isFullController() ? '<button class="btn btn-ghost btn-sm" ' + (isLocked ? 'disabled data-force-disabled' : 'onclick="removePlayer(' + index + ')"') + '>✕</button>' : '';
     return '<div class="player-item' + (isLocked ? ' locked' : '') + (player.notAvailable ? ' not-avail' : '') + '">'
       + '<span class="player-name">' + (index + 1) + '. ' + esc(player.name) + '</span>'
-      + '<span style="display:flex;gap:5px;flex-shrink:0;align-items:center">' + badges + availability + '</span>' + remove + '</div>';
+      + '<span class="player-meta">' + badges + skill + availability + '</span>' + remove + '</div>';
   }).join('');
+}
+
+function renderMatchmakingMode() {
+  document.querySelectorAll('[data-matchmaking-mode]').forEach(function (button) {
+    button.classList.toggle('active', button.dataset.matchmakingMode === S.matchmakingMode);
+  });
+  var help = document.getElementById('matchmakingHelp');
+  if (help) help.textContent = S.matchmakingMode === 'balanced'
+    ? 'Balances team rating totals after game-count and waiting fairness.'
+    : 'Prioritizes fair play counts, waiting time, and fresh partners.';
+  var readOnly = document.getElementById('matchmakingReadOnly');
+  if (readOnly) readOnly.textContent = S.matchmakingMode === 'balanced' ? '⭐ Skill Balanced' : '🤝 Social Fair';
 }
 
 function syncCourtButtons() {
@@ -892,7 +1141,7 @@ function renderHistorySection() {
 function renderActivitySection() {
   var element = document.getElementById('activitySection');
   if (!roomId) { element.innerHTML = ''; return; }
-  var html = '<div class="card"><div class="card-title history-toggle-row" onclick="toggleActivity()"><span class="card-title-left">📝 Controller Activity (' + activityEvents.length + ')</span><span>' + (activityOpen ? '▲ Hide' : '▼ Show') + '</span></div>';
+  var html = '<div class="card"><div class="card-title history-toggle-row" onclick="toggleActivity()"><span class="card-title-left">📝 Live Activity (' + activityEvents.length + ')</span><span>' + (activityOpen ? '▲ Hide' : '▼ Show') + '</span></div>';
   if (activityOpen) {
     if (!activityEvents.length) html += '<div class="empty-hint">No activity recorded yet.</div>';
     activityEvents.forEach(function (event) {
@@ -930,17 +1179,34 @@ function syncHostControls() {
 }
 
 function syncControlState() {
-  var disabled = !!roomId && (!navigator.onLine || sharedBusy || !roomData || roomData.status !== 'active');
+  var unavailable = !!roomId && (!navigator.onLine || sharedBusy || !roomData || roomData.status !== 'active');
+  var roleReadOnly = !!roomId && !isFullController();
   ['playerCard', 'courtSettingsCard', 'actionControls', 'courtsSection'].forEach(function (id) {
     var root = document.getElementById(id);
     if (!root) return;
-    root.querySelectorAll('button,input').forEach(function (control) { control.disabled = disabled || control.hasAttribute('data-force-disabled'); });
+    root.querySelectorAll('button,input').forEach(function (control) { control.disabled = unavailable || roleReadOnly || control.hasAttribute('data-force-disabled'); });
   });
+  var inputRow = document.querySelector('#playerCard .input-row');
+  if (inputRow) inputRow.hidden = roleReadOnly;
+  var actions = document.getElementById('actionControls');
+  if (actions) actions.hidden = roleReadOnly;
+  var courtSelector = document.getElementById('courtSelector');
+  var courtReadOnly = document.getElementById('courtReadOnly');
+  if (courtSelector) courtSelector.hidden = roleReadOnly;
+  if (courtReadOnly) {
+    courtReadOnly.hidden = !roleReadOnly;
+    courtReadOnly.textContent = S.courts + ' court' + (S.courts === 1 ? '' : 's');
+  }
+  var modeOptions = document.querySelector('.matchmaking-options');
+  var modeReadOnly = document.getElementById('matchmakingReadOnly');
+  if (modeOptions) modeOptions.hidden = roleReadOnly;
+  if (modeReadOnly) modeReadOnly.hidden = !roleReadOnly;
 }
 
 function renderAll() {
   renderSessionCard();
   syncCourtButtons();
+  renderMatchmakingMode();
   updateStats();
   renderPlayerList();
   renderAvailableSection();

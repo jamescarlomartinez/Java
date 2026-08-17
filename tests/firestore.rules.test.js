@@ -37,7 +37,7 @@ function room(overrides = {}) {
     organizerGrantId: 'grant-1',
     status: 'active',
     revision: 0,
-    state: { schemaVersion: 3, players: [] },
+    state: { schemaVersion: 4, players: [] },
     undoStack: [],
     lastEventId: 'event-0',
     createdAt: Timestamp.now(),
@@ -92,6 +92,29 @@ test('an anonymous link holder can register membership for a known room', { skip
   }));
 });
 
+test('anonymous players and viewers can register their requested room role', { skip: !emulatorAvailable }, async () => {
+  for (const entry of [
+    { uid: 'player-joiner', role: 'player', playerId: 'p1' },
+    { uid: 'viewer-joiner', role: 'viewer', playerId: null }
+  ]) {
+    const db = env.authenticatedContext(entry.uid, { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+    await assertSucceeds(setDoc(doc(db, `roomMembers/room-secret_${entry.uid}`), {
+      roomId: 'room-secret', uid: entry.uid, displayName: entry.uid,
+      role: entry.role, playerId: entry.playerId,
+      joinedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    }));
+  }
+});
+
+test('a guest cannot claim the organizer membership role', { skip: !emulatorAvailable }, async () => {
+  const db = env.authenticatedContext('organizer-spoof', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+  await assertFails(setDoc(doc(db, 'roomMembers/room-secret_organizer-spoof'), {
+    roomId: 'room-secret', uid: 'organizer-spoof', displayName: 'Fake Host',
+    role: 'organizer', playerId: null,
+    joinedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+  }));
+});
+
 test('an approved organizer can atomically create a room, membership, and initial event', { skip: !emulatorAvailable }, async () => {
   const db = env.authenticatedContext('host-create', {
     email: 'host@example.com', firebase: { sign_in_provider: 'google.com' }
@@ -101,6 +124,7 @@ test('an approved organizer can atomically create a room, membership, and initia
   batch.set(doc(db, 'rooms/created-room'), createdRoom);
   batch.set(doc(db, 'roomMembers/created-room_host-create'), {
     roomId: 'created-room', uid: 'host-create', displayName: 'Host',
+    role: 'organizer', playerId: null,
     joinedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
   });
   batch.set(doc(db, 'roomEvents/created-event'), {
@@ -123,7 +147,7 @@ test('anonymous controllers can update normal room state but cannot end it', { s
   const db = env.authenticatedContext('guest-1', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
   const ref = doc(db, 'rooms/room-secret');
   await assertSucceeds(updateDoc(ref, {
-    state: { schemaVersion: 3, players: [{ id: 'p1', name: 'Amy' }] },
+    state: { schemaVersion: 4, players: [{ id: 'p1', name: 'Amy' }] },
     revision: 1,
     lastEventId: 'event-1',
     undoStack: ['event-1'],
@@ -144,7 +168,7 @@ test('organizer can end a room and guests cannot change lifecycle fields', { ski
   }));
   const guestDb = env.authenticatedContext('guest-1').firestore();
   await assertFails(updateDoc(doc(guestDb, 'rooms/room-lifecycle'), {
-    state: { schemaVersion: 3, players: [] }, revision: 2, lastEventId: 'late-event',
+    state: { schemaVersion: 4, players: [] }, revision: 2, lastEventId: 'late-event',
     undoStack: [], updatedAt: serverTimestamp()
   }));
 });
@@ -159,7 +183,7 @@ test('expired room summaries remain readable but read-only until TTL deletion', 
   const db = env.authenticatedContext('guest-1').firestore();
   await assertSucceeds(getDoc(doc(db, 'rooms/room-expired')));
   await assertFails(updateDoc(doc(db, 'rooms/room-expired'), {
-    state: { schemaVersion: 3, players: [] }, revision: 4,
+    state: { schemaVersion: 4, players: [] }, revision: 4,
     lastEventId: 'too-late', undoStack: [], updatedAt: serverTimestamp()
   }));
 });

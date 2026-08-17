@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  var SCHEMA_VERSION = 3;
+  var SCHEMA_VERSION = 4;
 
   function clone(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -45,6 +45,7 @@
       courtStates: [],
       history: [],
       rotationRound: 0,
+      matchmakingMode: 'social',
       teammateCounts: {},
       opponentCounts: {}
     };
@@ -78,7 +79,9 @@
 
   function migrateLegacy(legacy) {
     if (!legacy || typeof legacy !== 'object') return createState(2);
-    if (legacy.schemaVersion === SCHEMA_VERSION && Array.isArray(legacy.players)) return normalizeState(legacy);
+    if (Array.isArray(legacy.players) && legacy.players.some(function (player) { return player && typeof player === 'object'; })) {
+      return normalizeState(legacy);
+    }
 
     var state = createState(legacy.courts || 2);
     var names = Array.isArray(legacy.players) ? legacy.players : [];
@@ -92,6 +95,10 @@
         games: Number(legacy.playCounts && legacy.playCounts[name]) || 0,
         wins: Number(legacy.winCounts && legacy.winCounts[name]) || 0,
         notAvailable: !!(legacy.notAvailable && legacy.notAvailable[name]),
+        skillRating: 3,
+        checkedIn: false,
+        checkedInUid: null,
+        checkedInName: null,
         lastAssignedRound: -1
       };
     });
@@ -128,20 +135,29 @@
     state.schemaVersion = SCHEMA_VERSION;
     state.players = Array.isArray(state.players) ? state.players.map(function (player) {
       if (typeof player === 'string') {
-        return { id: makeId('p'), name: player, games: 0, wins: 0, notAvailable: false, lastAssignedRound: -1 };
+        return {
+          id: makeId('p'), name: player, games: 0, wins: 0, notAvailable: false,
+          skillRating: 3, checkedIn: false, checkedInUid: null, checkedInName: null, lastAssignedRound: -1
+        };
       }
+      var checkedIn = !!player.checkedIn && typeof player.checkedInUid === 'string' && player.checkedInUid.length > 0;
       return {
         id: player.id || makeId('p'),
         name: String(player.name || 'Player'),
         games: Math.max(0, Number(player.games) || 0),
         wins: Math.max(0, Number(player.wins) || 0),
         notAvailable: !!player.notAvailable,
+        skillRating: Math.max(1, Math.min(5, Math.round((Number(player.skillRating) || 3) * 2) / 2)),
+        checkedIn: checkedIn,
+        checkedInUid: checkedIn ? player.checkedInUid : null,
+        checkedInName: checkedIn ? String(player.checkedInName || player.name || 'Player').slice(0, 60) : null,
         lastAssignedRound: Number.isFinite(Number(player.lastAssignedRound)) ? Number(player.lastAssignedRound) : -1
       };
     }) : [];
     state.courts = Math.max(1, Math.min(6, Number(state.courts) || 2));
     state.history = Array.isArray(state.history) ? state.history.slice(0, 100) : [];
     state.rotationRound = Math.max(0, Number(state.rotationRound) || 0);
+    state.matchmakingMode = state.matchmakingMode === 'balanced' ? 'balanced' : 'social';
     state.teammateCounts = state.teammateCounts && typeof state.teammateCounts === 'object' ? state.teammateCounts : {};
     state.opponentCounts = state.opponentCounts && typeof state.opponentCounts === 'object' ? state.opponentCounts : {};
     initCourtStates(state, state.courts);
@@ -201,6 +217,49 @@
 
   function rankedPlayers(state) {
     return state.players.slice().sort(compareStandings);
+  }
+
+  function checkInPlayer(state, playerId, uid, displayName) {
+    var player = playerById(state, playerId);
+    if (!player) return { changed: false, reason: 'That player is no longer in the session.' };
+    if (player.checkedInUid && player.checkedInUid !== uid) {
+      return { changed: false, reason: player.name + ' is already checked in on another device.' };
+    }
+    var changed = !player.checkedIn || player.checkedInUid !== uid || player.notAvailable;
+    player.checkedIn = true;
+    player.checkedInUid = uid;
+    player.checkedInName = String(displayName || player.name).slice(0, 60);
+    player.notAvailable = false;
+    return { changed: changed, player: player };
+  }
+
+  function setSelfAvailability(state, playerId, uid, notAvailable) {
+    var player = playerById(state, playerId);
+    if (!player || !player.checkedIn || player.checkedInUid !== uid) {
+      return { changed: false, reason: 'This device is not checked in as that player.' };
+    }
+    if (lockedIds(state).indexOf(player.id) !== -1) {
+      return { changed: false, reason: player.name + ' is currently on court.' };
+    }
+    notAvailable = !!notAvailable;
+    if (player.notAvailable === notAvailable) return { changed: false, reason: 'Availability is already up to date.' };
+    player.notAvailable = notAvailable;
+    return { changed: true, player: player };
+  }
+
+  function checkOutPlayer(state, playerId, uid) {
+    var player = playerById(state, playerId);
+    if (!player || !player.checkedIn || player.checkedInUid !== uid) {
+      return { changed: false, reason: 'This device is not checked in as that player.' };
+    }
+    if (lockedIds(state).indexOf(player.id) !== -1) {
+      return { changed: false, reason: player.name + ' must finish the active game before leaving.' };
+    }
+    player.checkedIn = false;
+    player.checkedInUid = null;
+    player.checkedInName = null;
+    player.notAvailable = true;
+    return { changed: true, player: player };
   }
 
   function pairKey(a, b) {
@@ -263,13 +322,16 @@
           var last = playerById(state, id).lastAssignedRound;
           return sum + (last < 0 ? state.rotationRound + 2 : state.rotationRound - last);
         }, 0);
+        var teamASkill = partition[0].reduce(function (sum, id) { return sum + playerById(state, id).skillRating; }, 0);
+        var teamBSkill = partition[1].reduce(function (sum, id) { return sum + playerById(state, id).skillRating; }, 0);
+        var skillGap = state.matchmakingMode === 'balanced' ? Math.abs(teamASkill - teamBSkill) : 0;
         var teammateRepeats = (state.teammateCounts[pairKey(partition[0][0], partition[0][1])] || 0)
           + (state.teammateCounts[pairKey(partition[1][0], partition[1][1])] || 0);
         var opponentRepeats = 0;
         partition[0].forEach(function (a) {
           partition[1].forEach(function (b) { opponentRepeats += state.opponentCounts[pairKey(a, b)] || 0; });
         });
-        var score = [spread, pickedGames, backToBack, -waitTotal, teammateRepeats, opponentRepeats, randomFn()];
+        var score = [spread, pickedGames, backToBack, -waitTotal, skillGap, teammateRepeats, opponentRepeats, randomFn()];
         if (!best || compareTuple(score, best.score) < 0) best = { teamA: partition[0], teamB: partition[1], score: score };
       });
     });
@@ -394,6 +456,9 @@
     availableIds: availableIds,
     compareStandings: compareStandings,
     rankedPlayers: rankedPlayers,
+    checkInPlayer: checkInPlayer,
+    setSelfAvailability: setSelfAvailability,
+    checkOutPlayer: checkOutPlayer,
     pairKey: pairKey,
     chooseAssignment: chooseAssignment,
     assignGame: assignGame,
