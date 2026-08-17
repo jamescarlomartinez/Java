@@ -76,6 +76,23 @@ test('player self check-in owns one roster entry and controls only its availabil
   assert.equal(state.players[0].notAvailable, true);
 });
 
+test('a QR guest can add and claim their own unique player name', () => {
+  const state = stateWithPlayers(['Amy'], 1);
+  const enrolled = Engine.enrollPlayer(state, '  Ben  ', 'uid-ben', 'Ben phone', 'self-ben');
+
+  assert.equal(enrolled.changed, true);
+  assert.equal(enrolled.player.id, 'self-ben');
+  assert.equal(enrolled.player.name, 'Ben');
+  assert.equal(enrolled.player.checkedIn, true);
+  assert.equal(enrolled.player.checkedInUid, 'uid-ben');
+  assert.equal(enrolled.player.skillRating, 3);
+  assert.equal(enrolled.player.notAvailable, false);
+  assert.equal(state.players.length, 2);
+
+  assert.equal(Engine.enrollPlayer(state, 'ben', 'uid-other', 'Other phone').changed, false);
+  assert.equal(Engine.enrollPlayer(state, 'Cara', 'uid-ben', 'Ben phone').changed, false);
+});
+
 test('a checked-in player cannot take a break or leave while assigned to a court', () => {
   const state = stateWithPlayers(['Amy', 'Ben', 'Cara', 'Dan'], 1);
   Engine.checkInPlayer(state, 'p0', 'uid-amy', 'Amy');

@@ -50,3 +50,10 @@ test('shared controls and player rows have adaptive layouts', () => {
   assert.match(html, /@media \(max-width:\s*620px\)/);
   assert.match(html, /max-height:\s*calc\(100dvh - 16px\)/);
 });
+
+test('player QR check-in supports creating and claiming a new roster name', () => {
+  assert.match(app, /id="selfEnrollBtn"/);
+  assert.match(app, /Add & Check In/);
+  assert.match(app, /player_self_enrolled/);
+  assert.match(app, /Engine\.enrollPlayer/);
+});

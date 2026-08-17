@@ -6,10 +6,10 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 
 - The organizer signs in with an email present in the `allowedEmails` Firestore collection.
 - **Share Current Game** copies the device's `pickleballRotation_v2`, v3, or v4 state into a new unguessable `?room=...` URL.
-- Controller link holders join with Firebase Anonymous Authentication, enter a display name, and may use normal rotation controls. Player links use a roster-name picker; viewer links need no name entry.
+- Controller link holders join with Firebase Anonymous Authentication, enter a display name, and may use normal rotation controls. Player links let guests choose an existing roster name or add and check in their own name; viewer links need no name entry.
 - **QR & Links** provides three entry paths:
   - `?room=<id>` opens normal controller mode.
-  - `?room=<id>&mode=player` lets a player choose their roster name, check in, take a break, return, or check out.
+  - `?room=<id>&mode=player` lets a player choose an existing roster name or enroll themselves, check in, take a break, return, or check out.
   - `?room=<id>&mode=view` opens a simplified live read-only board.
 - Social Fair remains the default rotation style. **Skill Balanced** adds editable 1.0–5.0 player ratings and minimizes the team-rating gap after game-count and waiting fairness.
 - Every shared action runs in a Firestore transaction and creates a top-level `roomEvents` record.

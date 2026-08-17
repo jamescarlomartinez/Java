@@ -219,6 +219,31 @@
     return state.players.slice().sort(compareStandings);
   }
 
+  function enrollPlayer(state, name, uid, displayName, playerId) {
+    name = String(name || '').trim().slice(0, 50);
+    if (!name) return { changed: false, reason: 'Enter your player name.' };
+    if (!uid) return { changed: false, reason: 'A signed-in device is required to enroll.' };
+    if (state.players.some(function (player) { return player.name.toLowerCase() === name.toLowerCase(); })) {
+      return { changed: false, reason: 'That name is already in the player list.' };
+    }
+    var ownedPlayer = state.players.find(function (player) { return player.checkedInUid === uid; });
+    if (ownedPlayer) return { changed: false, reason: 'This device is already checked in as ' + ownedPlayer.name + '.' };
+    var player = {
+      id: playerId || makeId('p'),
+      name: name,
+      games: 0,
+      wins: 0,
+      notAvailable: false,
+      skillRating: 3,
+      checkedIn: true,
+      checkedInUid: uid,
+      checkedInName: String(displayName || name).slice(0, 60),
+      lastAssignedRound: -1
+    };
+    state.players.push(player);
+    return { changed: true, player: player };
+  }
+
   function checkInPlayer(state, playerId, uid, displayName) {
     var player = playerById(state, playerId);
     if (!player) return { changed: false, reason: 'That player is no longer in the session.' };
@@ -456,6 +481,7 @@
     availableIds: availableIds,
     compareStandings: compareStandings,
     rankedPlayers: rankedPlayers,
+    enrollPlayer: enrollPlayer,
     checkInPlayer: checkInPlayer,
     setSelfAvailability: setSelfAvailability,
     checkOutPlayer: checkOutPlayer,
