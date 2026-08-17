@@ -77,7 +77,9 @@ function openModal(options) {
   var overlay = document.getElementById('appModal');
   document.getElementById('modalTitle').textContent = options.title || '';
   document.getElementById('modalCopy').textContent = options.copy || '';
-  document.getElementById('modalBody').innerHTML = options.body || '';
+  var modalBody = document.getElementById('modalBody');
+  modalBody.innerHTML = options.body || '';
+  modalBody.scrollTop = 0;
   document.getElementById('modalActions').innerHTML = '';
   var close = document.getElementById('modalCloseBtn');
   close.style.display = options.closable === false ? 'none' : '';
@@ -87,7 +89,7 @@ function openModal(options) {
   };
   overlay.classList.add('visible');
   return {
-    body: document.getElementById('modalBody'),
+    body: modalBody,
     actions: document.getElementById('modalActions')
   };
 }
@@ -611,20 +613,25 @@ function openReplacementPicker(courtIndex, team, playerIndex) {
   });
   var modal = openModal({
     title: 'Replace ' + outgoingName,
-    copy: 'Choose a waiting player. ' + outgoingName + ' will return to the available pool.',
+    copy: 'Choose a waiting player. Skill, games played, and waiting time are shown for each option. ' + outgoingName + ' will return to the available pool.',
     body: '<div class="picker-list" id="replacementList"></div>'
   });
   var list = modal.body.querySelector('#replacementList');
   var automatic = document.createElement('button');
-  automatic.className = 'picker-option';
-  automatic.innerHTML = '<strong>✨ Auto-pick fairest</strong><br><small>Lowest games played, then longest wait</small>';
+  automatic.className = 'picker-option replacement-option auto-replacement';
+  automatic.innerHTML = '<span class="replacement-main"><strong>✨ Auto-pick fairest</strong><span class="replacement-skill">Recommended</span></span>'
+    + '<span class="replacement-detail">Lowest games played, then longest wait and best matchup</span>';
   automatic.onclick = function () { closeModal(); replaceCurrentPlayer(courtIndex, team, playerIndex, Engine.fairReplacement(S), outgoingId); };
   list.appendChild(automatic);
   ids.forEach(function (id) {
     var player = Engine.playerById(S, id);
+    var waitRounds = player.lastAssignedRound < 0 ? null : Math.max(0, S.rotationRound - player.lastAssignedRound);
+    var waitLabel = waitRounds == null ? 'Not played yet' : waitRounds + ' round' + (waitRounds === 1 ? '' : 's') + ' waiting';
     var button = document.createElement('button');
-    button.className = 'picker-option';
-    button.textContent = player.name + ' · ' + player.games + ' game' + (player.games === 1 ? '' : 's');
+    button.className = 'picker-option replacement-option';
+    button.innerHTML = '<span class="replacement-main"><strong>' + esc(player.name) + '</strong>'
+      + '<span class="replacement-skill">⭐ ' + player.skillRating.toFixed(1) + '</span></span>'
+      + '<span class="replacement-detail">' + player.games + ' game' + (player.games === 1 ? '' : 's') + ' · ' + esc(waitLabel) + '</span>';
     button.onclick = function () { closeModal(); replaceCurrentPlayer(courtIndex, team, playerIndex, id, outgoingId); };
     list.appendChild(button);
   });
@@ -1211,9 +1218,9 @@ function renderAll() {
   renderPlayerList();
   renderAvailableSection();
   renderCourtsSection();
+  renderLeaderboard();
   renderHistorySection();
   renderActivitySection();
-  renderLeaderboard();
   syncHostControls();
   syncControlState();
 }
