@@ -219,7 +219,11 @@
     return state.players.slice().sort(compareStandings);
   }
 
-  function enrollPlayer(state, name, uid, displayName, playerId) {
+  function normalizeSkillRating(value) {
+    return Math.max(1, Math.min(5, Math.round((Number(value) || 3) * 2) / 2));
+  }
+
+  function enrollPlayer(state, name, uid, displayName, playerId, skillRating) {
     name = String(name || '').trim().slice(0, 50);
     if (!name) return { changed: false, reason: 'Enter your player name.' };
     if (!uid) return { changed: false, reason: 'A signed-in device is required to enroll.' };
@@ -234,7 +238,7 @@
       games: 0,
       wins: 0,
       notAvailable: false,
-      skillRating: 3,
+      skillRating: normalizeSkillRating(skillRating),
       checkedIn: true,
       checkedInUid: uid,
       checkedInName: String(displayName || name).slice(0, 60),
@@ -244,18 +248,37 @@
     return { changed: true, player: player };
   }
 
-  function checkInPlayer(state, playerId, uid, displayName) {
+  function checkInPlayer(state, playerId, uid, displayName, skillRating) {
     var player = playerById(state, playerId);
     if (!player) return { changed: false, reason: 'That player is no longer in the session.' };
     if (player.checkedInUid && player.checkedInUid !== uid) {
       return { changed: false, reason: player.name + ' is already checked in on another device.' };
     }
-    var changed = !player.checkedIn || player.checkedInUid !== uid || player.notAvailable;
+    var hasSkillRating = skillRating !== undefined && skillRating !== null;
+    var nextSkillRating = hasSkillRating ? normalizeSkillRating(skillRating) : player.skillRating;
+    var changed = !player.checkedIn || player.checkedInUid !== uid || player.notAvailable || player.skillRating !== nextSkillRating;
     player.checkedIn = true;
     player.checkedInUid = uid;
     player.checkedInName = String(displayName || player.name).slice(0, 60);
     player.notAvailable = false;
+    player.skillRating = nextSkillRating;
     return { changed: changed, player: player };
+  }
+
+  function setSelfSkillRating(state, playerId, uid, skillRating) {
+    var player = playerById(state, playerId);
+    if (!player || !player.checkedIn || player.checkedInUid !== uid) {
+      return { changed: false, reason: 'This device is not checked in as that player.' };
+    }
+    var numericRating = Number(skillRating);
+    if (!Number.isFinite(numericRating) || numericRating < 1 || numericRating > 5 || numericRating * 2 !== Math.round(numericRating * 2)) {
+      return { changed: false, reason: 'Choose a skill rating from 1.0 to 5.0 in 0.5 steps.' };
+    }
+    if (player.skillRating === numericRating) {
+      return { changed: false, reason: 'Skill rating is already ' + numericRating.toFixed(1) + '.' };
+    }
+    player.skillRating = numericRating;
+    return { changed: true, player: player };
   }
 
   function setSelfAvailability(state, playerId, uid, notAvailable) {
@@ -483,6 +506,7 @@
     rankedPlayers: rankedPlayers,
     enrollPlayer: enrollPlayer,
     checkInPlayer: checkInPlayer,
+    setSelfSkillRating: setSelfSkillRating,
     setSelfAvailability: setSelfAvailability,
     checkOutPlayer: checkOutPlayer,
     pairKey: pairKey,

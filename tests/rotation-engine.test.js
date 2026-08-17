@@ -57,12 +57,13 @@ test('normalizes older room players with social matchmaking and check-in default
   assert.equal(normalized.players[0].checkedInUid, null);
 });
 
-test('player self check-in owns one roster entry and controls only its availability', () => {
+test('player self check-in owns one roster entry and controls only its availability and skill', () => {
   const state = stateWithPlayers(['Amy', 'Ben', 'Cara', 'Dan'], 1);
-  const checkedIn = Engine.checkInPlayer(state, 'p0', 'uid-amy', 'Amy phone');
+  const checkedIn = Engine.checkInPlayer(state, 'p0', 'uid-amy', 'Amy phone', 4);
   assert.equal(checkedIn.changed, true);
   assert.equal(state.players[0].checkedInUid, 'uid-amy');
   assert.equal(state.players[0].notAvailable, false);
+  assert.equal(state.players[0].skillRating, 4);
 
   const claimedElsewhere = Engine.checkInPlayer(state, 'p0', 'uid-other', 'Other phone');
   assert.equal(claimedElsewhere.changed, false);
@@ -71,6 +72,10 @@ test('player self check-in owns one roster entry and controls only its availabil
   assert.equal(Engine.setSelfAvailability(state, 'p0', 'uid-other', true).changed, false);
   assert.equal(Engine.setSelfAvailability(state, 'p0', 'uid-amy', true).changed, true);
   assert.equal(state.players[0].notAvailable, true);
+  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-other', 4.5).changed, false);
+  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-amy', 4.5).changed, true);
+  assert.equal(state.players[0].skillRating, 4.5);
+  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-amy', 4.2).changed, false);
   assert.equal(Engine.checkOutPlayer(state, 'p0', 'uid-amy').changed, true);
   assert.equal(state.players[0].checkedIn, false);
   assert.equal(state.players[0].notAvailable, true);
@@ -78,14 +83,14 @@ test('player self check-in owns one roster entry and controls only its availabil
 
 test('a QR guest can add and claim their own unique player name', () => {
   const state = stateWithPlayers(['Amy'], 1);
-  const enrolled = Engine.enrollPlayer(state, '  Ben  ', 'uid-ben', 'Ben phone', 'self-ben');
+  const enrolled = Engine.enrollPlayer(state, '  Ben  ', 'uid-ben', 'Ben phone', 'self-ben', 4.5);
 
   assert.equal(enrolled.changed, true);
   assert.equal(enrolled.player.id, 'self-ben');
   assert.equal(enrolled.player.name, 'Ben');
   assert.equal(enrolled.player.checkedIn, true);
   assert.equal(enrolled.player.checkedInUid, 'uid-ben');
-  assert.equal(enrolled.player.skillRating, 3);
+  assert.equal(enrolled.player.skillRating, 4.5);
   assert.equal(enrolled.player.notAvailable, false);
   assert.equal(state.players.length, 2);
 
