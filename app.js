@@ -1,7 +1,7 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
-var APP_VERSION = '3.2.0';
+var APP_VERSION = '3.3.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -304,12 +304,12 @@ function ensureControllerName(user) {
 }
 
 function skillRatingQuestion(selectedRating) {
-  var ratings = [];
-  for (var rating = 1; rating <= 5; rating += 0.5) ratings.push(rating.toFixed(1));
-  return '<fieldset class="skill-question"><legend>What is your current skill rating?</legend>'
-    + '<div class="field-help">1.0 is beginner and 5.0 is advanced. Skill Balanced mode uses this to make closer teams.</div>'
-    + '<div class="skill-picker" role="radiogroup" aria-label="Skill rating">' + ratings.map(function (value) {
-      return '<button class="picker-option' + (Number(value) === selectedRating ? ' is-selected' : '') + '" data-skill-choice="' + value + '" type="button" role="radio" aria-checked="' + (Number(value) === selectedRating ? 'true' : 'false') + '">⭐ ' + value + '</button>';
+  return '<fieldset class="skill-question"><legend>What is your current skill level?</legend>'
+    + '<div class="field-help">Choose the description that best matches your current play. Skill Balanced mode uses this for closer teams.</div>'
+    + '<div class="skill-picker" role="radiogroup" aria-label="Skill level">' + Engine.SKILL_LEVELS.map(function (level) {
+      var selected = level.value === selectedRating;
+      return '<button class="picker-option skill-level-option' + (selected ? ' is-selected' : '') + '" data-skill-choice="' + level.value + '" type="button" role="radio" aria-checked="' + (selected ? 'true' : 'false') + '">'
+        + '<span class="skill-level-name">⭐ ' + esc(level.label) + '</span><span class="skill-level-description">' + esc(level.description) + '</span></button>';
     }).join('') + '</div></fieldset>';
 }
 
@@ -330,7 +330,8 @@ function ensurePlayerIdentity() {
   pendingPlayerSkillRating = null;
   var saved = localStorage.getItem(playerStorageKey());
   var savedPlayer = Engine.playerById(S, saved);
-  if (savedPlayer && (!savedPlayer.checkedInUid || savedPlayer.checkedInUid === currentUser.uid)) {
+  var canReuseSavedPlayer = savedPlayer && (!savedPlayer.checkedInUid || savedPlayer.checkedInUid === currentUser.uid);
+  if (savedPlayer && savedPlayer.skillLevelConfirmed && savedPlayer.checkedIn && savedPlayer.checkedInUid === currentUser.uid && !savedPlayer.notAvailable) {
     linkedPlayerId = savedPlayer.id;
     controllerName = savedPlayer.name;
     return Promise.resolve(savedPlayer);
@@ -375,7 +376,9 @@ function ensurePlayerIdentity() {
       var selectedRating = player.skillRating;
       var modal = openModal({
         title: 'Check in as ' + player.name,
-        copy: 'Confirm your name and skill rating before joining the rotation.',
+        copy: player.skillLevelConfirmed
+          ? 'Confirm your name and skill level before joining the rotation.'
+          : 'We converted the previous rating to a provisional level. Confirm it or choose a better match.',
         body: '<div class="identity-summary"><span>Player name</span><strong>' + esc(player.name) + '</strong></div>'
           + skillRatingQuestion(selectedRating),
         closable: false
@@ -387,37 +390,43 @@ function ensurePlayerIdentity() {
       back.onclick = showPicker;
       var join = document.createElement('button');
       join.className = 'btn btn-primary';
-      join.textContent = 'Check In';
+      join.textContent = player.skillLevelConfirmed ? 'Check In' : 'Confirm & Check In';
       join.onclick = function () { finishIdentity(player, selectedRating, null); };
       modal.actions.appendChild(back);
       modal.actions.appendChild(join);
     }
 
     function showEnrollmentForm() {
-      var selectedRating = 3;
+      var selectedRating = null;
       var modal = openModal({
         title: 'Add yourself',
-        copy: 'Enter the name and rating everyone will see in the rotation.',
+        copy: 'Enter the name and skill level everyone will see in the rotation.',
         body: '<label class="modal-label" for="selfEnrollName">Your player name</label>'
           + '<input class="modal-field" id="selfEnrollName" maxlength="50" autocomplete="name" placeholder="Enter your name">'
           + skillRatingQuestion(selectedRating)
           + '<div class="modal-inline-error" id="selfEnrollError" role="alert"></div>',
         closable: false
       });
-      bindSkillRatingQuestion(modal.body, function (rating) { selectedRating = rating; });
+      var join;
+      bindSkillRatingQuestion(modal.body, function (rating) {
+        selectedRating = rating;
+        if (join) join.disabled = false;
+      });
       var input = document.getElementById('selfEnrollName');
       var error = document.getElementById('selfEnrollError');
       var back = document.createElement('button');
       back.className = 'btn btn-ghost';
       back.textContent = '← Back';
       back.onclick = showPicker;
-      var join = document.createElement('button');
+      join = document.createElement('button');
       join.className = 'btn btn-primary';
       join.textContent = 'Add & Check In';
+      join.disabled = true;
       function submit() {
         var name = input.value.trim();
         var duplicate = S.players.find(function (player) { return player.name.toLowerCase() === name.toLowerCase(); });
         if (!name) { error.textContent = 'Enter your player name.'; input.focus(); return; }
+        if (!selectedRating) { error.textContent = 'Choose your skill level.'; return; }
         if (duplicate) {
           error.textContent = duplicate.checkedInUid
             ? 'That name is already checked in. Use a distinct player name.'
@@ -436,7 +445,8 @@ function ensurePlayerIdentity() {
       setTimeout(function () { input.focus(); }, 30);
     }
 
-    showPicker();
+    if (canReuseSavedPlayer) showExistingPlayerForm(savedPlayer);
+    else showPicker();
   });
 }
 
@@ -450,7 +460,7 @@ function enrollLinkedPlayer() {
       changed: true,
       player: result.player,
       message: 'You are checked in as ' + result.player.name + '.',
-      summary: result.player.name + ' added themselves and checked in'
+      summary: result.player.name + ' added themselves as ' + Engine.skillLevelLabel(result.player.skillRating) + ' and checked in'
     };
   }, { selfService: true, undoable: false }).then(function (result) {
     if (result && result.changed) {
@@ -511,7 +521,8 @@ function initSharedRoom(user) {
       });
     }
     var player = Engine.playerById(S, linkedPlayerId);
-    if (player && player.checkedIn && player.checkedInUid === currentUser.uid && !player.notAvailable) return player;
+    if (player && player.skillLevelConfirmed && pendingPlayerSkillRating == null
+      && player.checkedIn && player.checkedInUid === currentUser.uid && !player.notAvailable) return player;
     return checkInLinkedPlayer(true).then(function (result) {
       if (!result) throw new Error('That player could not be checked in. Refresh the link and choose again.');
       return result;
@@ -597,7 +608,7 @@ function runAction(type, reducer, options) {
   if (!navigator.onLine) { showToast('Reconnect to control the shared game.'); return Promise.resolve(null); }
   if (!roomData || roomData.status !== 'active') { showToast('This shared session is read-only.'); return Promise.resolve(null); }
   if (accessMode === 'viewer' && !isOrganizer) { showToast('This is a view-only link.'); return Promise.resolve(null); }
-  if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only change your own availability and skill rating.'); return Promise.resolve(null); }
+  if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only change your own availability and skill level.'); return Promise.resolve(null); }
   if (options.hostOnly && !isOrganizer) { showToast('Only the organizer can do that.'); return Promise.resolve(null); }
 
   sharedBusy = true;
@@ -659,16 +670,46 @@ function addPlayer() {
   var input = document.getElementById('playerInput');
   var name = input.value.trim();
   if (!name) { showToast('Please enter a player name.'); return; }
-  runAction('player_added', function (state) {
-    if (state.players.some(function (player) { return player.name.toLowerCase() === name.toLowerCase(); })) {
-      return { changed: false, reason: '"' + name + '" is already in the list.' };
-    }
-    state.players.push({
-      id: Engine.makeId('p'), name: name, games: 0, wins: 0, notAvailable: false,
-      skillRating: 3, checkedIn: false, checkedInUid: null, checkedInName: null, lastAssignedRound: -1
-    });
-    return { changed: true, message: name + ' added.', summary: 'Added player ' + name };
-  }).then(function (result) { if (result && result.changed) { input.value = ''; input.focus(); } });
+  if (S.players.some(function (player) { return player.name.toLowerCase() === name.toLowerCase(); })) {
+    showToast('"' + name + '" is already in the list.');
+    return;
+  }
+  var selectedRating = null;
+  var modal = openModal({
+    title: 'Skill level · ' + name,
+    copy: 'Choose a skill level before adding this player.',
+    body: skillRatingQuestion(null)
+  });
+  var cancel = document.createElement('button');
+  cancel.className = 'btn btn-ghost';
+  cancel.textContent = 'Cancel';
+  cancel.onclick = closeModal;
+  var add = document.createElement('button');
+  add.className = 'btn btn-primary';
+  add.textContent = 'Add Player';
+  add.disabled = true;
+  bindSkillRatingQuestion(modal.body, function (rating) {
+    selectedRating = rating;
+    add.disabled = false;
+  });
+  add.onclick = function () {
+    if (!selectedRating) return;
+    closeModal();
+    runAction('player_added', function (state) {
+      if (state.players.some(function (player) { return player.name.toLowerCase() === name.toLowerCase(); })) {
+        return { changed: false, reason: '"' + name + '" is already in the list.' };
+      }
+      state.players.push({
+        id: Engine.makeId('p'), name: name, games: 0, wins: 0, notAvailable: false,
+        skillRating: selectedRating, skillLevelConfirmed: true,
+        checkedIn: false, checkedInUid: null, checkedInName: null, lastAssignedRound: -1
+      });
+      var levelName = Engine.skillLevelLabel(selectedRating);
+      return { changed: true, message: name + ' added as ' + levelName + '.', summary: 'Added ' + name + ' as ' + levelName };
+    }).then(function (result) { if (result && result.changed) { input.value = ''; input.focus(); } });
+  };
+  modal.actions.appendChild(cancel);
+  modal.actions.appendChild(add);
 }
 
 function removePlayer(index) {
@@ -823,7 +864,7 @@ function openReplacementPicker(courtIndex, team, playerIndex) {
   });
   var modal = openModal({
     title: 'Replace ' + outgoingName,
-    copy: 'Choose a waiting player. Skill, games played, and waiting time are shown for each option. ' + outgoingName + ' will return to the available pool.',
+    copy: 'Choose a waiting player. Skill level, games played, and waiting time are shown for each option. ' + outgoingName + ' will return to the available pool.',
     body: '<div class="picker-list" id="replacementList"></div>'
   });
   var list = modal.body.querySelector('#replacementList');
@@ -840,7 +881,7 @@ function openReplacementPicker(courtIndex, team, playerIndex) {
     var button = document.createElement('button');
     button.className = 'picker-option replacement-option';
     button.innerHTML = '<span class="replacement-main"><strong>' + esc(player.name) + '</strong>'
-      + '<span class="replacement-skill">⭐ ' + player.skillRating.toFixed(1) + '</span></span>'
+      + '<span class="replacement-skill">⭐ ' + esc(Engine.skillLevelLabel(player.skillRating)) + (player.skillLevelConfirmed ? '' : ' · Confirm') + '</span></span>'
       + '<span class="replacement-detail">' + player.games + ' game' + (player.games === 1 ? '' : 's') + ' · ' + esc(waitLabel) + '</span>';
     button.onclick = function () { closeModal(); replaceCurrentPlayer(courtIndex, team, playerIndex, id, outgoingId); };
     list.appendChild(button);
@@ -879,7 +920,7 @@ function checkInLinkedPlayer(silent) {
     return {
       changed: true,
       message: silent ? '' : result.player.name + ' is checked in.',
-      summary: result.player.name + ' checked in with a ' + result.player.skillRating.toFixed(1) + ' skill rating'
+      summary: result.player.name + ' checked in as ' + Engine.skillLevelLabel(result.player.skillRating)
     };
   }, { selfService: true, undoable: false }).then(function (result) {
     if (result && result.changed) pendingPlayerSkillRating = null;
@@ -907,30 +948,52 @@ function openSkillPicker(playerId) {
   if (!isFullController() && !isSelfEdit) return;
   var player = Engine.playerById(S, playerId);
   if (!player) return;
+  var selectedRating = player.skillRating;
   var modal = openModal({
-    title: 'Skill rating · ' + player.name,
-    copy: 'Update this anytime. The new rating is used the next time Skill Balanced mode generates a game.',
+    title: 'Skill level · ' + player.name,
+    copy: player.skillLevelConfirmed
+      ? 'Update this anytime. The new level is used the next time Skill Balanced mode generates a game.'
+      : 'Confirm the provisional level or choose a better match. Current games will not be rearranged.',
     body: skillRatingQuestion(player.skillRating)
   });
+  var cancel = document.createElement('button');
+  cancel.className = 'btn btn-ghost';
+  cancel.textContent = 'Cancel';
+  cancel.onclick = closeModal;
+  var save = document.createElement('button');
+  save.className = 'btn btn-primary';
+  save.textContent = player.skillLevelConfirmed ? 'Save Level' : 'Confirm Level';
+  save.disabled = player.skillLevelConfirmed;
   bindSkillRatingQuestion(modal.body, function (nextRating) {
+    selectedRating = nextRating;
+    save.disabled = false;
+  });
+  save.onclick = function () {
     closeModal();
     runAction(isSelfEdit ? 'player_self_skill_changed' : 'player_skill_changed', function (state) {
       if (isSelfEdit) {
-        var selfResult = Engine.setSelfSkillRating(state, playerId, currentUser.uid, nextRating);
+        var selfResult = Engine.setSelfSkillRating(state, playerId, currentUser.uid, selectedRating);
         if (!selfResult.changed) return selfResult;
+        var selfLevelName = Engine.skillLevelLabel(selfResult.player.skillRating);
         return {
           changed: true,
-          message: 'Your skill rating is now ' + nextRating.toFixed(1) + '.',
-          summary: selfResult.player.name + ' updated their skill rating to ' + nextRating.toFixed(1)
+          message: 'Your skill level is now ' + selfLevelName + '.',
+          summary: selfResult.player.name + ' updated their skill level to ' + selfLevelName
         };
       }
       var target = Engine.playerById(state, playerId);
       if (!target) return { changed: false, reason: 'Player not found.' };
-      if (target.skillRating === nextRating) return { changed: false, reason: 'Skill rating is already ' + nextRating.toFixed(1) + '.' };
-      target.skillRating = nextRating;
-      return { changed: true, message: target.name + ' is now rated ' + nextRating.toFixed(1) + '.', summary: 'Rated ' + target.name + ' at ' + nextRating.toFixed(1) };
+      if (target.skillRating === selectedRating && target.skillLevelConfirmed) {
+        return { changed: false, reason: 'Skill level is already ' + Engine.skillLevelLabel(selectedRating) + '.' };
+      }
+      target.skillRating = selectedRating;
+      target.skillLevelConfirmed = true;
+      var levelName = Engine.skillLevelLabel(selectedRating);
+      return { changed: true, message: target.name + ' is now ' + levelName + '.', summary: 'Set ' + target.name + ' to ' + levelName };
     }, isSelfEdit ? { selfService: true, undoable: false } : {});
-  });
+  };
+  modal.actions.appendChild(cancel);
+  modal.actions.appendChild(save);
 }
 
 function setMatchmakingMode(mode) {
@@ -1215,7 +1278,8 @@ function renderSessionCard() {
     actions = '<button class="btn ' + (player && player.notAvailable ? 'btn-primary' : 'btn-accent') + '" onclick="toggleMyAvailability()" '
       + (sessionDisabled ? 'disabled' : '') + '>' + (player && player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
       + (player ? '<button class="btn btn-ghost" onclick="openSkillPicker(\'' + esc(player.id) + '\')" '
-        + (sessionDisabled ? 'disabled' : '') + '>⭐ My Skill ' + player.skillRating.toFixed(1) + '</button>' : '');
+        + (sessionDisabled ? 'disabled' : '') + '>⭐ My Skill: ' + esc(Engine.skillLevelLabel(player.skillRating))
+        + (player.skillLevelConfirmed ? '' : ' · Confirm') + '</button>' : '');
   }
   card.innerHTML = '<div class="session-top"><div><div class="session-title">' + esc(roomData ? roomData.name : 'Live game') + '</div>'
     + '<div class="session-sub">Live shared rotation · ' + esc(roleText) + '</div></div>'
@@ -1237,9 +1301,11 @@ function renderPlayerList() {
       + (player.id === linkedPlayerId ? '<span class="you-badge">You</span>' : '')
       + (!isLocked && !player.notAvailable && player.wins ? '<span class="wins-badge">🏆 ' + player.wins + 'W</span>' : '')
       + (!isLocked && !player.notAvailable && player.games ? '<span class="games-badge">' + player.games + 'G</span>' : '');
-    var skill = S.matchmakingMode !== 'balanced' ? '' : isFullController()
-      ? '<button class="skill-badge" onclick="openSkillPicker(\'' + esc(player.id) + '\')" title="Edit skill rating">⭐ ' + player.skillRating.toFixed(1) + '</button>'
-      : '<span class="skill-badge is-static">⭐ ' + player.skillRating.toFixed(1) + '</span>';
+    var levelName = Engine.skillLevelLabel(player.skillRating);
+    var skill = isFullController()
+      ? '<button class="skill-badge" onclick="openSkillPicker(\'' + esc(player.id) + '\')" title="Edit skill level">⭐ ' + esc(levelName) + '</button>'
+      : '<span class="skill-badge is-static">⭐ ' + esc(levelName) + '</span>';
+    if (!player.skillLevelConfirmed) skill += '<span class="confirm-badge">Confirm</span>';
     var availability = !isFullController() || isLocked ? '' : '<button class="btn-na' + (player.notAvailable ? ' is-na' : '') + '" onclick="toggleNotAvailable(' + index + ')">' + (player.notAvailable ? '✅ Back In' : '⛔ NA') + '</button>';
     var remove = isFullController() ? '<button class="btn btn-ghost btn-sm" ' + (isLocked ? 'disabled data-force-disabled' : 'onclick="removePlayer(' + index + ')"') + '>✕</button>' : '';
     return '<div class="player-item' + (isLocked ? ' locked' : '') + (player.notAvailable ? ' not-avail' : '') + '">'
@@ -1254,7 +1320,7 @@ function renderMatchmakingMode() {
   });
   var help = document.getElementById('matchmakingHelp');
   if (help) help.textContent = S.matchmakingMode === 'balanced'
-    ? 'Balances team rating totals after game-count and waiting fairness.'
+    ? 'Balances team skill levels after game-count and waiting fairness.'
     : 'Prioritizes fair play counts, waiting time, and fresh partners.';
   var readOnly = document.getElementById('matchmakingReadOnly');
   if (readOnly) readOnly.textContent = S.matchmakingMode === 'balanced' ? '⭐ Skill Balanced' : '🤝 Social Fair';
@@ -1363,6 +1429,29 @@ function renderHistorySection() {
   element.innerHTML = html + '</div>';
 }
 
+function activitySummary(event) {
+  var summary = String(event.summary || event.type || 'Activity');
+  function legacyLevel(value) {
+    return Engine.skillLevelLabel(Engine.migrateLegacySkillRating(Number(value)));
+  }
+  if (event.type === 'player_checked_in') {
+    return summary.replace(/ checked in with a (\d(?:\.\d)?) skill rating$/, function (_, value) {
+      return ' checked in as ' + legacyLevel(value);
+    });
+  }
+  if (event.type === 'player_self_skill_changed') {
+    return summary.replace(/ updated their skill rating to (\d(?:\.\d)?)$/, function (_, value) {
+      return ' updated their skill level to ' + legacyLevel(value);
+    });
+  }
+  if (event.type === 'player_skill_changed') {
+    return summary.replace(/^Rated (.+) at (\d(?:\.\d)?)$/, function (_, name, value) {
+      return 'Set ' + name + ' to ' + legacyLevel(value);
+    });
+  }
+  return summary;
+}
+
 function renderActivitySection() {
   var element = document.getElementById('activitySection');
   if (!roomId) { element.innerHTML = ''; return; }
@@ -1371,7 +1460,7 @@ function renderActivitySection() {
     if (!activityEvents.length) html += '<div class="empty-hint">No activity recorded yet.</div>';
     activityEvents.forEach(function (event) {
       var date = event.createdAt && event.createdAt.toDate ? event.createdAt.toDate() : null;
-      html += '<div class="activity-item"><div><div class="activity-summary">' + esc(event.summary || event.type) + '</div><div class="activity-meta">' + esc(event.actorName || 'Controller') + '</div></div>'
+      html += '<div class="activity-item"><div><div class="activity-summary">' + esc(activitySummary(event)) + '</div><div class="activity-meta">' + esc(event.actorName || 'Controller') + '</div></div>'
         + '<div class="activity-time">' + (date ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Syncing') + '</div></div>';
     });
   }

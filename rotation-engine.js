@@ -5,7 +5,41 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  var SCHEMA_VERSION = 4;
+  var SCHEMA_VERSION = 5;
+  var SKILL_LEVELS = [
+    { value: 1, label: 'Beginner', description: 'Learning rules, scoring, and basic strokes.' },
+    { value: 2, label: 'Novice', description: 'Can serve and rally briefly; building consistency.' },
+    { value: 3, label: 'Low Intermediate', description: 'Understands positioning and can sustain rallies, but remains inconsistent under pressure.' },
+    { value: 4, label: 'Intermediate', description: 'Consistent serves, returns, positioning, and developing strategy.' },
+    { value: 5, label: 'Advanced', description: 'Strong control, placement, dinks, resets, and coordinated team play.' },
+    { value: 6, label: 'Expert / Pro', description: 'Tournament-level pace, consistency, strategy, and shot selection.' }
+  ];
+
+  function skillLevelByValue(value) {
+    var numericValue = Number(value);
+    return SKILL_LEVELS.find(function (level) { return level.value === numericValue; }) || null;
+  }
+
+  function skillLevelLabel(value) {
+    var level = skillLevelByValue(value);
+    return level ? level.label : 'Needs skill level';
+  }
+
+  function normalizeSkillLevel(value) {
+    var numericValue = Number(value);
+    return Number.isInteger(numericValue) && numericValue >= 1 && numericValue <= 6 ? numericValue : null;
+  }
+
+  function migrateLegacySkillRating(value) {
+    var rating = Number(value);
+    if (!Number.isFinite(rating)) rating = 3;
+    if (rating <= 1) return 1;
+    if (rating <= 2) return 2;
+    if (rating <= 2.5) return 3;
+    if (rating <= 3.5) return 4;
+    if (rating <= 4.5) return 5;
+    return 6;
+  }
 
   function clone(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -95,7 +129,8 @@
         games: Number(legacy.playCounts && legacy.playCounts[name]) || 0,
         wins: Number(legacy.winCounts && legacy.winCounts[name]) || 0,
         notAvailable: !!(legacy.notAvailable && legacy.notAvailable[name]),
-        skillRating: 3,
+        skillRating: 4,
+        skillLevelConfirmed: false,
         checkedIn: false,
         checkedInUid: null,
         checkedInName: null,
@@ -132,22 +167,27 @@
 
   function normalizeState(value) {
     var state = clone(value || {});
+    var sourceSchemaVersion = Math.max(0, Number(state.schemaVersion) || 0);
     state.schemaVersion = SCHEMA_VERSION;
     state.players = Array.isArray(state.players) ? state.players.map(function (player) {
       if (typeof player === 'string') {
         return {
           id: makeId('p'), name: player, games: 0, wins: 0, notAvailable: false,
-          skillRating: 3, checkedIn: false, checkedInUid: null, checkedInName: null, lastAssignedRound: -1
+          skillRating: 4, skillLevelConfirmed: false,
+          checkedIn: false, checkedInUid: null, checkedInName: null, lastAssignedRound: -1
         };
       }
       var checkedIn = !!player.checkedIn && typeof player.checkedInUid === 'string' && player.checkedInUid.length > 0;
+      var currentSkillLevel = sourceSchemaVersion >= SCHEMA_VERSION ? normalizeSkillLevel(player.skillRating) : null;
+      var normalizedSkillLevel = currentSkillLevel || migrateLegacySkillRating(player.skillRating);
       return {
         id: player.id || makeId('p'),
         name: String(player.name || 'Player'),
         games: Math.max(0, Number(player.games) || 0),
         wins: Math.max(0, Number(player.wins) || 0),
         notAvailable: !!player.notAvailable,
-        skillRating: Math.max(1, Math.min(5, Math.round((Number(player.skillRating) || 3) * 2) / 2)),
+        skillRating: normalizedSkillLevel,
+        skillLevelConfirmed: !!currentSkillLevel && !!player.skillLevelConfirmed,
         checkedIn: checkedIn,
         checkedInUid: checkedIn ? player.checkedInUid : null,
         checkedInName: checkedIn ? String(player.checkedInName || player.name || 'Player').slice(0, 60) : null,
@@ -219,10 +259,6 @@
     return state.players.slice().sort(compareStandings);
   }
 
-  function normalizeSkillRating(value) {
-    return Math.max(1, Math.min(5, Math.round((Number(value) || 3) * 2) / 2));
-  }
-
   function enrollPlayer(state, name, uid, displayName, playerId, skillRating) {
     name = String(name || '').trim().slice(0, 50);
     if (!name) return { changed: false, reason: 'Enter your player name.' };
@@ -232,13 +268,16 @@
     }
     var ownedPlayer = state.players.find(function (player) { return player.checkedInUid === uid; });
     if (ownedPlayer) return { changed: false, reason: 'This device is already checked in as ' + ownedPlayer.name + '.' };
+    var selectedSkillLevel = normalizeSkillLevel(skillRating);
+    if (!selectedSkillLevel) return { changed: false, reason: 'Choose a skill level before joining.' };
     var player = {
       id: playerId || makeId('p'),
       name: name,
       games: 0,
       wins: 0,
       notAvailable: false,
-      skillRating: normalizeSkillRating(skillRating),
+      skillRating: selectedSkillLevel,
+      skillLevelConfirmed: true,
       checkedIn: true,
       checkedInUid: uid,
       checkedInName: String(displayName || name).slice(0, 60),
@@ -255,13 +294,17 @@
       return { changed: false, reason: player.name + ' is already checked in on another device.' };
     }
     var hasSkillRating = skillRating !== undefined && skillRating !== null;
-    var nextSkillRating = hasSkillRating ? normalizeSkillRating(skillRating) : player.skillRating;
-    var changed = !player.checkedIn || player.checkedInUid !== uid || player.notAvailable || player.skillRating !== nextSkillRating;
+    var nextSkillRating = hasSkillRating ? normalizeSkillLevel(skillRating) : player.skillRating;
+    if (hasSkillRating && !nextSkillRating) return { changed: false, reason: 'Choose a valid skill level.' };
+    if (!player.skillLevelConfirmed && !hasSkillRating) return { changed: false, reason: 'Confirm your skill level before checking in.' };
+    var changed = !player.checkedIn || player.checkedInUid !== uid || player.notAvailable
+      || player.skillRating !== nextSkillRating || !player.skillLevelConfirmed;
     player.checkedIn = true;
     player.checkedInUid = uid;
     player.checkedInName = String(displayName || player.name).slice(0, 60);
     player.notAvailable = false;
     player.skillRating = nextSkillRating;
+    if (hasSkillRating) player.skillLevelConfirmed = true;
     return { changed: changed, player: player };
   }
 
@@ -270,14 +313,13 @@
     if (!player || !player.checkedIn || player.checkedInUid !== uid) {
       return { changed: false, reason: 'This device is not checked in as that player.' };
     }
-    var numericRating = Number(skillRating);
-    if (!Number.isFinite(numericRating) || numericRating < 1 || numericRating > 5 || numericRating * 2 !== Math.round(numericRating * 2)) {
-      return { changed: false, reason: 'Choose a skill rating from 1.0 to 5.0 in 0.5 steps.' };
-    }
-    if (player.skillRating === numericRating) {
-      return { changed: false, reason: 'Skill rating is already ' + numericRating.toFixed(1) + '.' };
+    var numericRating = normalizeSkillLevel(skillRating);
+    if (!numericRating) return { changed: false, reason: 'Choose a valid skill level.' };
+    if (player.skillRating === numericRating && player.skillLevelConfirmed) {
+      return { changed: false, reason: 'Skill level is already ' + skillLevelLabel(numericRating) + '.' };
     }
     player.skillRating = numericRating;
+    player.skillLevelConfirmed = true;
     return { changed: true, player: player };
   }
 
@@ -492,6 +534,7 @@
 
   return {
     SCHEMA_VERSION: SCHEMA_VERSION,
+    SKILL_LEVELS: SKILL_LEVELS,
     clone: clone,
     makeId: makeId,
     createState: createState,
@@ -500,6 +543,10 @@
     initCourtStates: initCourtStates,
     playerById: playerById,
     playerName: playerName,
+    skillLevelByValue: skillLevelByValue,
+    skillLevelLabel: skillLevelLabel,
+    normalizeSkillLevel: normalizeSkillLevel,
+    migrateLegacySkillRating: migrateLegacySkillRating,
     lockedIds: lockedIds,
     availableIds: availableIds,
     compareStandings: compareStandings,

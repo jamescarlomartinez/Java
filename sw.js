@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v18-player-skill-rating';
+const CACHE = 'pickleball-v19-named-skill-levels';
 const ASSETS = [
   './',
   './index.html',
