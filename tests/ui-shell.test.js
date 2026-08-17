@@ -7,6 +7,9 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+const serviceWorker = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
+const release = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'version.json'), 'utf8'));
+const packageInfo = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 function zIndexFor(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -56,4 +59,27 @@ test('player QR check-in supports creating and claiming a new roster name', () =
   assert.match(app, /Add & Check In/);
   assert.match(app, /player_self_enrolled/);
   assert.match(app, /Engine\.enrollPlayer/);
+});
+
+test('footer exposes the current version and a forced update control', () => {
+  const appVersion = app.match(/var APP_VERSION = '([^']+)'/);
+  assert.ok(appVersion);
+  assert.equal(appVersion[1], release.version);
+  assert.equal(packageInfo.version, release.version);
+  assert.match(html, /id="appVersion"/);
+  assert.match(html, /id="updateAppBtn"/);
+  assert.ok(html.indexOf('id="activitySection"') < html.indexOf('class="app-footer"'));
+  assert.match(app, /function updateAppToLatest/);
+  assert.match(app, /registration\.unregister\(\)/);
+  assert.match(app, /caches\.delete/);
+});
+
+test('service worker bypasses stale caches for releases and app code', () => {
+  assert.match(serviceWorker, /pickleball-v17-version-updater/);
+  assert.match(serviceWorker, /version\.json/);
+  assert.match(serviceWorker, /cache:\s*'reload'/);
+  assert.match(serviceWorker, /cache:\s*'no-store'/);
+  assert.match(serviceWorker, /clients\.matchAll/);
+  assert.match(serviceWorker, /client\.navigate/);
+  assert.match(app, /updateViaCache:\s*'none'/);
 });

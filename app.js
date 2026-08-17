@@ -1,6 +1,8 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
+var APP_VERSION = '3.1.0';
+var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
 var ROOM_PARAM = 'room';
@@ -10,6 +12,10 @@ var THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 
 var S = Engine.createState(2);
 var queryParams = new URLSearchParams(window.location.search);
+if (queryParams.has('_appUpdate')) {
+  queryParams.delete('_appUpdate');
+  window.history.replaceState(null, '', window.location.pathname + (queryParams.toString() ? '?' + queryParams.toString() : '') + window.location.hash);
+}
 var roomId = queryParams.get(ROOM_PARAM);
 var requestedMode = queryParams.get('mode');
 var accessMode = roomId ? (requestedMode === 'player' ? 'player' : requestedMode === 'view' ? 'viewer' : 'controller') : 'solo';
@@ -32,6 +38,7 @@ var appInitialised = false;
 var toastTimer = null;
 var deferredPrompt = null;
 var organizerGrantId = null;
+var appUpdateInProgress = false;
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -138,6 +145,81 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 3200);
+}
+
+function renderAppVersion() {
+  var version = document.getElementById('appVersion');
+  if (version) version.textContent = 'v' + APP_VERSION;
+}
+
+function checkLatestVersion() {
+  var button = document.getElementById('updateAppBtn');
+  var status = document.getElementById('appUpdateStatus');
+  if (!button || !status) return Promise.resolve(null);
+  return fetch(VERSION_URL + '?check=' + Date.now(), { cache: 'no-store' }).then(function (response) {
+    if (!response.ok) throw new Error('Version check failed.');
+    return response.json();
+  }).then(function (release) {
+    var latest = String(release.version || '');
+    if (!latest) throw new Error('Version information is unavailable.');
+    if (latest !== APP_VERSION) {
+      button.textContent = '↻ Update to v' + latest;
+      button.classList.add('update-available');
+      status.textContent = 'New version available';
+    } else {
+      button.textContent = '↻ Update App';
+      button.classList.remove('update-available');
+      status.textContent = 'Latest version';
+    }
+    return latest;
+  }).catch(function () {
+    if (status) status.textContent = navigator.onLine ? 'Update check unavailable' : 'Check when online';
+    return null;
+  });
+}
+
+function updateAppToLatest() {
+  if (appUpdateInProgress) return;
+  if (!navigator.onLine) { showToast('Connect to the internet before updating.'); return; }
+  appUpdateInProgress = true;
+  var button = document.getElementById('updateAppBtn');
+  var status = document.getElementById('appUpdateStatus');
+  button.disabled = true;
+  button.textContent = 'Updating…';
+  status.textContent = 'Removing old app files…';
+
+  fetch(VERSION_URL + '?update=' + Date.now(), { cache: 'no-store' }).then(function (response) {
+    if (!response.ok) throw new Error('The latest release could not be reached.');
+    return response.json();
+  }).then(function () {
+    var registrations = 'serviceWorker' in navigator ? navigator.serviceWorker.getRegistrations() : Promise.resolve([]);
+    var cacheKeys = 'caches' in window ? caches.keys() : Promise.resolve([]);
+    return Promise.all([registrations, cacheKeys]);
+  }).then(function (results) {
+    var registrations = results[0];
+    var cacheKeys = results[1];
+    return Promise.all(
+      registrations.filter(function (registration) {
+        return registration.scope.indexOf(window.location.origin) === 0 && window.location.href.indexOf(registration.scope) === 0;
+      }).map(function (registration) {
+        if (registration.waiting) registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        return registration.unregister();
+      }).concat(cacheKeys.filter(function (key) {
+        return key.indexOf('pickleball-') === 0;
+      }).map(function (key) { return caches.delete(key); }))
+    );
+  }).then(function () {
+    sessionStorage.setItem('pickleballUpdateRequested', '1');
+    var nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set('_appUpdate', Date.now());
+    window.location.replace(nextUrl.toString());
+  }).catch(function (error) {
+    appUpdateInProgress = false;
+    button.disabled = false;
+    button.textContent = '↻ Try Update Again';
+    status.textContent = 'Update failed';
+    showToast(error.message || 'Could not update the app.');
+  });
 }
 
 function showMsg(text, type) {
@@ -1369,6 +1451,21 @@ document.getElementById('installBtn').addEventListener('click', function () {
 });
 window.addEventListener('appinstalled', function () { document.getElementById('installBanner').classList.remove('visible'); showToast('App installed!'); });
 
+renderAppVersion();
+var updateAppButton = document.getElementById('updateAppBtn');
+if (updateAppButton) {
+  updateAppButton.addEventListener('click', updateAppToLatest);
+  checkLatestVersion();
+}
+if (sessionStorage.getItem('pickleballUpdateRequested')) {
+  sessionStorage.removeItem('pickleballUpdateRequested');
+  setTimeout(function () { showToast('App updated to v' + APP_VERSION + '.'); }, 700);
+}
+
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function () { navigator.serviceWorker.register('./sw.js').catch(function (error) { console.warn('Service worker failed:', error); }); });
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(function (registration) {
+      registration.update().catch(function () {});
+    }).catch(function (error) { console.warn('Service worker failed:', error); });
+  });
 }

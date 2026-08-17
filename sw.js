@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v16-self-enrollment';
+const CACHE = 'pickleball-v17-version-updater';
 const ASSETS = [
   './',
   './index.html',
@@ -12,25 +12,52 @@ const ASSETS = [
 
 self.addEventListener('install', function(e) {
   e.waitUntil(
-    caches.open(CACHE).then(function(c) { return c.addAll(ASSETS); })
+    caches.open(CACHE).then(function(cache) {
+      return Promise.all(ASSETS.map(function(asset) {
+        return fetch(asset, { cache: 'reload' }).then(function(response) {
+          if (!response.ok) throw new Error('Could not cache ' + asset);
+          return cache.put(asset, response);
+        });
+      }));
+    })
   );
   self.skipWaiting();
 });
 
+self.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('activate', function(e) {
+  var hadOlderPickleballCache = false;
   e.waitUntil(
     caches.keys().then(function(keys) {
+      var olderKeys = keys.filter(function(k) { return k.indexOf('pickleball-') === 0 && k !== CACHE; });
+      hadOlderPickleballCache = olderKeys.length > 0;
       return Promise.all(
-        keys.filter(function(k) { return k !== CACHE; })
-            .map(function(k)   { return caches.delete(k); })
+        olderKeys.map(function(k) { return caches.delete(k); })
       );
+    }).then(function() {
+      return self.clients.claim();
+    }).then(function() {
+      if (!hadOlderPickleballCache) return null;
+      return self.clients.matchAll({ type: 'window' }).then(function(clients) {
+        return Promise.all(clients.filter(function(client) {
+          return client.url.indexOf(self.registration.scope) === 0;
+        }).map(function(client) { return client.navigate(client.url); }));
+      });
     })
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', function(e) {
   if (e.request.method !== 'GET') return;
+  var url = new URL(e.request.url);
+
+  if (url.origin === self.location.origin && url.pathname.endsWith('/version.json')) {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }));
+    return;
+  }
 
   if (e.request.mode === 'navigate') {
     e.respondWith(
@@ -43,7 +70,19 @@ self.addEventListener('fetch', function(e) {
     return;
   }
 
-  if (new URL(e.request.url).origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin) return;
+  if (/\.(?:js|html|json)$/.test(url.pathname)) {
+    e.respondWith(
+      fetch(e.request, { cache: 'no-store' }).then(function(response) {
+        if (response.ok) {
+          var copy = response.clone();
+          caches.open(CACHE).then(function(cache) { cache.put(e.request, copy); });
+        }
+        return response;
+      }).catch(function() { return caches.match(e.request); })
+    );
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then(function(hit) {
       if (hit) return hit;

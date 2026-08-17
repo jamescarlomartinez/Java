@@ -409,6 +409,12 @@
     .qr-link-label { color: var(--text); font-size: .78rem; font-weight: 800; }
     .qr-url { color: var(--text-muted); font-size: .68rem; overflow-wrap: anywhere; text-align: center; line-height: 1.35; }
     .access-note { color: var(--text-muted); font-size: .7rem; line-height: 1.4; margin-top: 10px; }
+    .app-footer { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; color: var(--text-muted); border-top: 1px solid rgba(52,211,153,.16); margin: 18px 2px 0; padding: 14px 4px 24px; font-size: .72rem; }
+    .app-version-copy { display: inline-flex; align-items: center; gap: 5px; }
+    .app-version-copy strong { color: var(--text-dim); }
+    .app-update-status { color: var(--text-muted); }
+    .app-footer .btn { min-height: 34px; padding: 7px 11px; font-size: .72rem; }
+    .app-footer .update-available { color: #092419; background: var(--primary-light); border-color: var(--primary-light); }
 
     @media (min-width: 620px) {
       .modal-overlay { align-items: center; }
@@ -576,6 +582,12 @@
 
   <!-- Shared activity -->
   <div id="activitySection"></div>
+
+  <footer class="app-footer" aria-label="Application version and updates">
+    <span class="app-version-copy">Pickleball Rotation <strong id="appVersion">v—</strong></span>
+    <span class="app-update-status" id="appUpdateStatus" aria-live="polite">Checking for updates…</span>
+    <button class="btn btn-ghost btn-sm" id="updateAppBtn" type="button">↻ Update App</button>
+  </footer>
 
 </div>
 
