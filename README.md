@@ -15,6 +15,7 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 - Every shared action runs in a Firestore transaction and creates a top-level `roomEvents` record.
 - Organizer-only controls include clear-all, reset, undo, and end-session.
 - Ended rooms are read-only and expire after 30 days. Firestore TTL is configured for rooms, events, and membership proofs.
+- The footer shows the running app version. **Update App** clears old Pickleball caches, resets the service worker, and reloads the latest deployed release.
 
 ## Local verification
 
