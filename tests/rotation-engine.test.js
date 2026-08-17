@@ -12,7 +12,8 @@ function stateWithPlayers(names, courts = 2) {
     games: 0,
     wins: 0,
     notAvailable: false,
-    skillRating: 3,
+    skillRating: 4,
+    skillLevelConfirmed: true,
     checkedIn: false,
     checkedInUid: null,
     checkedInName: null,
@@ -32,13 +33,15 @@ test('migrates pickleballRotation_v2 names, stats, availability, courts, and his
     history: [{ courtNum: 1, gameNum: 3, teamA: ['Amy', 'Cara'], teamB: ['Ben', 'Dan'], winner: 'A', ts: 42 }]
   });
 
-  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.schemaVersion, 5);
   assert.equal(new Set(migrated.players.map(player => player.id)).size, 4);
   assert.equal(migrated.players.find(player => player.name === 'Amy').games, 3);
   assert.equal(migrated.players.find(player => player.name === 'Amy').wins, 2);
   assert.equal(migrated.players.find(player => player.name === 'Dan').notAvailable, true);
   assert.deepEqual(migrated.courtStates[0].teamA.map(id => Engine.playerName(migrated, id)), ['Amy', 'Ben']);
   assert.deepEqual(migrated.history[0].teamANames, ['Amy', 'Cara']);
+  assert.equal(migrated.players[0].skillRating, 4);
+  assert.equal(migrated.players[0].skillLevelConfirmed, false);
 });
 
 test('normalizes older room players with social matchmaking and check-in defaults', () => {
@@ -50,11 +53,56 @@ test('normalizes older room players with social matchmaking and check-in default
     history: []
   });
 
-  assert.equal(normalized.schemaVersion, 4);
+  assert.equal(normalized.schemaVersion, 5);
   assert.equal(normalized.matchmakingMode, 'social');
-  assert.equal(normalized.players[0].skillRating, 3);
+  assert.equal(normalized.players[0].skillRating, 4);
+  assert.equal(normalized.players[0].skillLevelConfirmed, false);
   assert.equal(normalized.players[0].checkedIn, false);
   assert.equal(normalized.players[0].checkedInUid, null);
+});
+
+test('migrates every legacy numeric rating to a provisional named level', () => {
+  const oldRatings = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
+  const expectedLevels = [1, 2, 2, 3, 4, 4, 5, 5, 6];
+  const normalized = Engine.normalizeState({
+    schemaVersion: 4,
+    courts: 1,
+    players: oldRatings.map((skillRating, index) => ({
+      id: `legacy-${index}`, name: `Legacy ${index}`, games: 0, wins: 0,
+      notAvailable: false, skillRating, lastAssignedRound: -1
+    })),
+    courtStates: [],
+    history: []
+  });
+
+  assert.deepEqual(normalized.players.map(player => player.skillRating), expectedLevels);
+  assert.ok(normalized.players.every(player => player.skillLevelConfirmed === false));
+  assert.deepEqual(
+    expectedLevels.map(Engine.skillLevelLabel),
+    ['Beginner', 'Novice', 'Novice', 'Low Intermediate', 'Intermediate', 'Intermediate', 'Advanced', 'Advanced', 'Expert / Pro']
+  );
+});
+
+test('new schema keeps all six ordered skill levels and metadata', () => {
+  assert.deepEqual(Engine.SKILL_LEVELS.map(level => level.value), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(Engine.SKILL_LEVELS.map(level => level.label), [
+    'Beginner', 'Novice', 'Low Intermediate', 'Intermediate', 'Advanced', 'Expert / Pro'
+  ]);
+  assert.ok(Engine.SKILL_LEVELS.every(level => level.description.length > 20));
+});
+
+test('a migrated player must confirm their provisional level at check-in', () => {
+  const state = stateWithPlayers(['Amy'], 1);
+  state.players[0].skillLevelConfirmed = false;
+
+  const unconfirmed = Engine.checkInPlayer(state, 'p0', 'uid-amy', 'Amy phone');
+  assert.equal(unconfirmed.changed, false);
+  assert.match(unconfirmed.reason, /confirm your skill level/i);
+
+  const confirmed = Engine.checkInPlayer(state, 'p0', 'uid-amy', 'Amy phone', 4);
+  assert.equal(confirmed.changed, true);
+  assert.equal(confirmed.player.skillLevelConfirmed, true);
+  assert.equal(Engine.skillLevelLabel(confirmed.player.skillRating), 'Intermediate');
 });
 
 test('player self check-in owns one roster entry and controls only its availability and skill', () => {
@@ -72,10 +120,11 @@ test('player self check-in owns one roster entry and controls only its availabil
   assert.equal(Engine.setSelfAvailability(state, 'p0', 'uid-other', true).changed, false);
   assert.equal(Engine.setSelfAvailability(state, 'p0', 'uid-amy', true).changed, true);
   assert.equal(state.players[0].notAvailable, true);
-  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-other', 4.5).changed, false);
-  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-amy', 4.5).changed, true);
-  assert.equal(state.players[0].skillRating, 4.5);
-  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-amy', 4.2).changed, false);
+  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-other', 5).changed, false);
+  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-amy', 5).changed, true);
+  assert.equal(state.players[0].skillRating, 5);
+  assert.equal(state.players[0].skillLevelConfirmed, true);
+  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid-amy', 4.5).changed, false);
   assert.equal(Engine.checkOutPlayer(state, 'p0', 'uid-amy').changed, true);
   assert.equal(state.players[0].checkedIn, false);
   assert.equal(state.players[0].notAvailable, true);
@@ -83,14 +132,16 @@ test('player self check-in owns one roster entry and controls only its availabil
 
 test('a QR guest can add and claim their own unique player name', () => {
   const state = stateWithPlayers(['Amy'], 1);
-  const enrolled = Engine.enrollPlayer(state, '  Ben  ', 'uid-ben', 'Ben phone', 'self-ben', 4.5);
+  assert.equal(Engine.enrollPlayer(state, 'Ben', 'uid-ben', 'Ben phone', 'self-ben').changed, false);
+  const enrolled = Engine.enrollPlayer(state, '  Ben  ', 'uid-ben', 'Ben phone', 'self-ben', 5);
 
   assert.equal(enrolled.changed, true);
   assert.equal(enrolled.player.id, 'self-ben');
   assert.equal(enrolled.player.name, 'Ben');
   assert.equal(enrolled.player.checkedIn, true);
   assert.equal(enrolled.player.checkedInUid, 'uid-ben');
-  assert.equal(enrolled.player.skillRating, 4.5);
+  assert.equal(enrolled.player.skillRating, 5);
+  assert.equal(enrolled.player.skillLevelConfirmed, true);
   assert.equal(enrolled.player.notAvailable, false);
   assert.equal(state.players.length, 2);
 
@@ -110,12 +161,23 @@ test('a checked-in player cannot take a break or leave while assigned to a court
 test('balanced mode minimizes team skill gap after fairness criteria', () => {
   const state = stateWithPlayers(['Expert', 'Advanced', 'Intermediate', 'Beginner'], 1);
   state.matchmakingMode = 'balanced';
-  [5, 4, 2, 1].forEach((rating, index) => { state.players[index].skillRating = rating; });
+  [6, 5, 2, 1].forEach((rating, index) => { state.players[index].skillRating = rating; });
 
   const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
   const teamTotal = team => team.reduce((sum, id) => sum + Engine.playerById(state, id).skillRating, 0);
-  assert.equal(teamTotal(assignment.teamA), 6);
-  assert.equal(teamTotal(assignment.teamB), 6);
+  assert.equal(teamTotal(assignment.teamA), 7);
+  assert.equal(teamTotal(assignment.teamB), 7);
+});
+
+test('balanced calculations accept the two middle named skill levels', () => {
+  const state = stateWithPlayers(['Novice', 'Low Intermediate', 'Intermediate', 'Advanced'], 1);
+  state.matchmakingMode = 'balanced';
+  [2, 3, 4, 5].forEach((level, index) => { state.players[index].skillRating = level; });
+
+  const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
+  const teamTotal = team => team.reduce((sum, id) => sum + Engine.playerById(state, id).skillRating, 0);
+  assert.equal(teamTotal(assignment.teamA), 7);
+  assert.equal(teamTotal(assignment.teamB), 7);
 });
 
 test('clears a legacy active court when its players are absent from the current roster', () => {

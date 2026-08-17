@@ -37,7 +37,7 @@ function room(overrides = {}) {
     organizerGrantId: 'grant-1',
     status: 'active',
     revision: 0,
-    state: { schemaVersion: 4, players: [] },
+    state: { schemaVersion: 5, players: [] },
     undoStack: [],
     lastEventId: 'event-0',
     createdAt: Timestamp.now(),
@@ -110,7 +110,7 @@ test('a player-link guest can atomically add and claim their own roster entry', 
   await env.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'rooms/room-self-enroll'), room({
       name: 'Self enrollment room',
-      state: { schemaVersion: 4, players: [] },
+      state: { schemaVersion: 5, players: [] },
       lastEventId: 'self-seed'
     }));
   });
@@ -131,7 +131,7 @@ test('a player-link guest can atomically add and claim their own roster entry', 
     const nextState = JSON.parse(JSON.stringify(beforeState));
     nextState.players.push({
       id: playerId, name: 'Jordan', games: 0, wins: 0, notAvailable: false,
-      skillRating: 3, checkedIn: true, checkedInUid: uid, checkedInName: 'Jordan', lastAssignedRound: -1
+      skillRating: 4, skillLevelConfirmed: true, checkedIn: true, checkedInUid: uid, checkedInName: 'Jordan', lastAssignedRound: -1
     });
     const nextRevision = data.revision + 1;
     transaction.update(roomRef, {
@@ -191,7 +191,7 @@ test('anonymous controllers can update normal room state but cannot end it', { s
   const db = env.authenticatedContext('guest-1', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
   const ref = doc(db, 'rooms/room-secret');
   await assertSucceeds(updateDoc(ref, {
-    state: { schemaVersion: 4, players: [{ id: 'p1', name: 'Amy' }] },
+    state: { schemaVersion: 5, players: [{ id: 'p1', name: 'Amy' }] },
     revision: 1,
     lastEventId: 'event-1',
     undoStack: ['event-1'],
@@ -212,7 +212,7 @@ test('organizer can end a room and guests cannot change lifecycle fields', { ski
   }));
   const guestDb = env.authenticatedContext('guest-1').firestore();
   await assertFails(updateDoc(doc(guestDb, 'rooms/room-lifecycle'), {
-    state: { schemaVersion: 4, players: [] }, revision: 2, lastEventId: 'late-event',
+    state: { schemaVersion: 5, players: [] }, revision: 2, lastEventId: 'late-event',
     undoStack: [], updatedAt: serverTimestamp()
   }));
 });
@@ -227,7 +227,7 @@ test('expired room summaries remain readable but read-only until TTL deletion', 
   const db = env.authenticatedContext('guest-1').firestore();
   await assertSucceeds(getDoc(doc(db, 'rooms/room-expired')));
   await assertFails(updateDoc(doc(db, 'rooms/room-expired'), {
-    state: { schemaVersion: 4, players: [] }, revision: 4,
+    state: { schemaVersion: 5, players: [] }, revision: 4,
     lastEventId: 'too-late', undoStack: [], updatedAt: serverTimestamp()
   }));
 });

@@ -130,8 +130,9 @@
     .checkin-badge, .you-badge { font-size: .68rem; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
     .checkin-badge { color: #7fffc2; background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.35); }
     .you-badge { color: #ffe0a6; background: rgba(244,162,97,.12); border: 1px solid rgba(244,162,97,.35); }
-    .skill-badge { font: inherit; font-size: .68rem; color: #ffe0a6; background: rgba(244,162,97,.1); border: 1px solid rgba(244,162,97,.32); padding: 3px 8px; border-radius: 20px; cursor: pointer; white-space: nowrap; }
+    .skill-badge { font: inherit; font-size: .68rem; line-height: 1.25; color: #ffe0a6; background: rgba(244,162,97,.1); border: 1px solid rgba(244,162,97,.32); padding: 4px 8px; border-radius: 20px; cursor: pointer; white-space: normal; text-align: center; }
     .skill-badge.is-static { cursor: default; }
+    .confirm-badge { color: #ffcf8a; background: rgba(244,162,97,.08); border: 1px dashed rgba(244,162,97,.5); border-radius: 20px; padding: 3px 8px; font-size: .68rem; font-weight: 800; white-space: nowrap; }
     .empty-hint { text-align: center; color: var(--text-muted); font-size: 0.88rem; padding: 20px 0; }
 
     /* ── COURT SELECTOR ── */
@@ -375,7 +376,7 @@
     #modalBody::-webkit-scrollbar { width: 6px; }
     #modalBody::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 999px; }
     .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
-    .modal-actions .btn { flex: 1; }
+    .modal-actions .btn { flex: 1; min-height: 44px; white-space: normal; }
     .picker-list { display: grid; gap: 7px; }
     .picker-option { width: 100%; text-align: left; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: .9rem; font-weight: 700; cursor: pointer; }
     .picker-option strong { color: var(--accent); }
@@ -396,14 +397,18 @@
     .modal-label { display: block; color: var(--text); font-size: .78rem; font-weight: 800; margin-bottom: 7px; }
     .modal-inline-error { min-height: 20px; color: #ff8a8a; font-size: .75rem; line-height: 1.35; padding-top: 6px; }
     .replacement-option { display: grid; gap: 5px; min-height: 62px; }
-    .replacement-main { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0; }
+    .replacement-main { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; min-width: 0; }
     .replacement-main strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .replacement-skill { flex-shrink: 0; color: #ffe0a6; background: rgba(244,162,97,.1); border: 1px solid rgba(244,162,97,.32); border-radius: 999px; padding: 3px 8px; font-size: .72rem; font-weight: 800; }
+    .replacement-skill { flex: 0 1 58%; color: #ffe0a6; background: rgba(244,162,97,.1); border: 1px solid rgba(244,162,97,.32); border-radius: 999px; padding: 3px 8px; font-size: .72rem; line-height: 1.25; font-weight: 800; text-align: right; white-space: normal; }
     .replacement-detail { color: var(--text-muted); font-size: .75rem; font-weight: 600; line-height: 1.3; }
     .auto-replacement { border-color: rgba(244,162,97,.5); background: rgba(244,162,97,.06); }
     .auto-replacement .replacement-main strong { white-space: normal; text-overflow: clip; }
-    .skill-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
-    .skill-picker .picker-option { text-align: center; }
+    .skill-picker { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .skill-picker .picker-option { text-align: left; }
+    .skill-level-option { min-height: 62px; display: grid; gap: 3px; align-content: center; touch-action: manipulation; }
+    .skill-level-name { color: var(--accent); font-size: .88rem; font-weight: 900; }
+    .skill-level-description { color: var(--text-muted); font-size: .73rem; font-weight: 600; line-height: 1.35; }
+    .skill-level-option.is-selected .skill-level-description { color: var(--text-dim); }
     .modal-field { width: 100%; background: var(--bg); color: var(--text); border: 2px solid var(--border); border-radius: 10px; padding: 13px 14px; font-size: 1rem; outline: none; }
     .modal-field:focus { border-color: var(--primary-light); }
     [hidden], .host-only[hidden] { display: none !important; }

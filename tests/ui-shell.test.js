@@ -43,7 +43,8 @@ test('standings render before history and live activity', () => {
 
 test('replacement picker includes skill and fairness details', () => {
   assert.match(app, /replacement-skill/);
-  assert.match(app, /player\.skillRating\.toFixed\(1\)/);
+  assert.match(app, /Engine\.skillLevelLabel\(player\.skillRating\)/);
+  assert.doesNotMatch(app, /skillRating\.toFixed/);
   assert.match(app, /waitLabel/);
   assert.match(app, /modalBody\.scrollTop\s*=\s*0/);
 });
@@ -52,6 +53,8 @@ test('shared controls and player rows have adaptive layouts', () => {
   assert.match(html, /\.session-actions\s*\{[^}]*display:\s*grid/);
   assert.match(html, /@media \(max-width:\s*620px\)/);
   assert.match(html, /max-height:\s*calc\(100dvh - 16px\)/);
+  assert.match(html, /\.skill-picker\s*\{[^}]*grid-template-columns:\s*1fr/);
+  assert.match(html, /\.skill-level-option\s*\{[^}]*min-height:\s*62px/);
 });
 
 test('player QR check-in supports creating and claiming a new roster name', () => {
@@ -59,7 +62,11 @@ test('player QR check-in supports creating and claiming a new roster name', () =
   assert.match(app, /Add & Check In/);
   assert.match(app, /player_self_enrolled/);
   assert.match(app, /Engine\.enrollPlayer/);
-  assert.match(app, /What is your current skill rating\?/);
+  assert.match(app, /What is your current skill level\?/);
+  assert.match(app, /Engine\.SKILL_LEVELS/);
+  assert.match(app, /skillLevelConfirmed/);
+  assert.match(app, /join\.disabled\s*=\s*true/);
+  assert.match(app, /if \(!selectedRating\) \{ error\.textContent = 'Choose your skill level\.'/);
   assert.match(app, /pendingPlayerSkillRating/);
   assert.match(app, /Engine\.setSelfSkillRating/);
   assert.match(app, /My Skill/);
@@ -79,11 +86,17 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v18-player-skill-rating/);
+  assert.match(serviceWorker, /pickleball-v19-named-skill-levels/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
   assert.match(serviceWorker, /clients\.matchAll/);
   assert.match(serviceWorker, /client\.navigate/);
   assert.match(app, /updateViaCache:\s*'none'/);
+});
+
+test('legacy numeric activity is displayed with named skill levels', () => {
+  assert.match(app, /function activitySummary\(event\)/);
+  assert.match(app, /Engine\.migrateLegacySkillRating/);
+  assert.match(app, /Engine\.skillLevelLabel/);
 });
