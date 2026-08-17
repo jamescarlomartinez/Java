@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v14-access-and-balance';
+const CACHE = 'pickleball-v15-responsive-layout';
 const ASSETS = [
   './',
   './index.html',
