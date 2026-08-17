@@ -1,9 +1,10 @@
-const CACHE = 'pickleball-v13-standings-order';
+const CACHE = 'pickleball-v14-access-and-balance';
 const ASSETS = [
   './',
   './index.html',
   './app.js',
   './rotation-engine.js',
+  './vendor/qrcode.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

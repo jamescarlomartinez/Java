@@ -20,3 +20,9 @@ test('guest controller-name modal renders above the joining overlay', () => {
     'The controller-name modal must remain visible while the joining overlay is active'
   );
 });
+
+test('QR library loads before the application and rotation-style controls are present', () => {
+  assert.ok(html.indexOf('./vendor/qrcode.js') < html.indexOf('./app.js'));
+  assert.match(html, /data-matchmaking-mode="social"/);
+  assert.match(html, /data-matchmaking-mode="balanced"/);
+});

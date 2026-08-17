@@ -5,8 +5,13 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 ## Live rooms
 
 - The organizer signs in with an email present in the `allowedEmails` Firestore collection.
-- **Share Current Game** copies the device's `pickleballRotation_v2` or v3 state into a new unguessable `?room=...` URL.
-- Link holders join with Firebase Anonymous Authentication, enter a display name, and may use normal rotation controls.
+- **Share Current Game** copies the device's `pickleballRotation_v2`, v3, or v4 state into a new unguessable `?room=...` URL.
+- Controller link holders join with Firebase Anonymous Authentication, enter a display name, and may use normal rotation controls. Player links use a roster-name picker; viewer links need no name entry.
+- **QR & Links** provides three entry paths:
+  - `?room=<id>` opens normal controller mode.
+  - `?room=<id>&mode=player` lets a player choose their roster name, check in, take a break, return, or check out.
+  - `?room=<id>&mode=view` opens a simplified live read-only board.
+- Social Fair remains the default rotation style. **Skill Balanced** adds editable 1.0–5.0 player ratings and minimizes the team-rating gap after game-count and waiting fairness.
 - Every shared action runs in a Firestore transaction and creates a top-level `roomEvents` record.
 - Organizer-only controls include clear-all, reset, undo, and end-session.
 - Ended rooms are read-only and expire after 30 days. Firestore TTL is configured for rooms, events, and membership proofs.
@@ -35,3 +40,5 @@ The rules test requires Java 11+ because the Firebase Firestore emulator is Java
 5. Publish the static files through GitHub Pages and validate a private live room on two browsers before merging the feature branch.
 
 Firestore TTL deletion is asynchronous; an expired document can remain visible for a period before the service removes it.
+
+The player and view-only query parameters simplify the interface for trusted link holders; they are not secret capability tokens because a recipient can edit the URL. QR generation uses the vendored MIT-licensed [`qrcode`](https://github.com/soldair/node-qrcode) browser build, with its license retained in `vendor/qrcode.LICENSE`.

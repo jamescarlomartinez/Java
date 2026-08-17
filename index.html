@@ -124,8 +124,14 @@
     }
     .player-item.locked { opacity: .6; }
     .player-name { font-size: 0.95rem; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .player-meta { display: flex; gap: 5px; flex-shrink: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
     .games-badge { font-size: 0.68rem; background: var(--primary); color: #fff; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
     .locked-badge { font-size: 0.68rem; background: #3a3060; color: #a090ff; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; border: 1px solid #5040a0; }
+    .checkin-badge, .you-badge { font-size: .68rem; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+    .checkin-badge { color: #7fffc2; background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.35); }
+    .you-badge { color: #ffe0a6; background: rgba(244,162,97,.12); border: 1px solid rgba(244,162,97,.35); }
+    .skill-badge { font: inherit; font-size: .68rem; color: #ffe0a6; background: rgba(244,162,97,.1); border: 1px solid rgba(244,162,97,.32); padding: 3px 8px; border-radius: 20px; cursor: pointer; white-space: nowrap; }
+    .skill-badge.is-static { cursor: default; }
     .empty-hint { text-align: center; color: var(--text-muted); font-size: 0.88rem; padding: 20px 0; }
 
     /* ── COURT SELECTOR ── */
@@ -139,6 +145,14 @@
     }
     .court-btn:active { transform: scale(.95); }
     .court-btn.active { background: var(--primary); border-color: var(--primary-light); color: #fff; }
+    .readonly-setting { min-height: 44px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: #a7f3d0; font-size: .86rem; font-weight: 800; }
+
+    .matchmaking { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(42,90,62,.65); }
+    .matchmaking-label { color: var(--primary-light); font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
+    .matchmaking-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .matchmaking-btn { min-height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-dim); padding: 11px 8px; font-size: .82rem; font-weight: 800; cursor: pointer; }
+    .matchmaking-btn.active { background: rgba(52,211,153,.15); border-color: var(--primary-light); color: #a7f3d0; }
+    .matchmaking-help { color: var(--text-muted); font-size: .72rem; line-height: 1.4; margin-top: 7px; }
 
     /* ── STATS BAR ── */
     .stats-row { display: flex; gap: 8px; margin-top: 14px; }
@@ -155,6 +169,7 @@
 
     /* ── ACTION BUTTONS ── */
     .action-row { display: flex; gap: 9px; margin-bottom: 12px; }
+    .action-row .btn { min-width: 0; white-space: normal; }
 
     /* ── COURT CARDS ── */
     .court-card { border-radius: 13px; padding: 14px; margin-bottom: 10px; border: 1px solid; }
@@ -361,12 +376,33 @@
     .picker-option { width: 100%; text-align: left; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: .9rem; font-weight: 700; cursor: pointer; }
     .picker-option strong { color: var(--accent); }
     .picker-option:active { filter: brightness(1.2); }
+    .picker-option:disabled { opacity: .45; cursor: not-allowed; }
+    .picker-option.is-selected { border-color: var(--accent); color: var(--accent); }
+    .skill-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+    .skill-picker .picker-option { text-align: center; }
     .modal-field { width: 100%; background: var(--bg); color: var(--text); border: 2px solid var(--border); border-radius: 10px; padding: 13px 14px; font-size: 1rem; outline: none; }
     .modal-field:focus { border-color: var(--primary-light); }
-    .host-only[hidden] { display: none !important; }
+    [hidden], .host-only[hidden] { display: none !important; }
+    .access-tabs { display: grid; grid-template-columns: 1fr; gap: 7px; margin-bottom: 12px; }
+    .access-tab { text-align: left; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text-dim); font-weight: 800; cursor: pointer; }
+    .access-tab.is-selected { color: #a7f3d0; border-color: var(--primary-light); background: rgba(52,211,153,.12); }
+    .qr-shell { display: grid; justify-items: center; gap: 7px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+    .qr-canvas { width: 220px; height: 220px; max-width: 100%; background: #fff; border-radius: 8px; }
+    .qr-link-label { color: var(--text); font-size: .78rem; font-weight: 800; }
+    .qr-url { color: var(--text-muted); font-size: .68rem; overflow-wrap: anywhere; text-align: center; line-height: 1.35; }
+    .access-note { color: var(--text-muted); font-size: .7rem; line-height: 1.4; margin-top: 10px; }
 
     @media (min-width: 620px) {
       .modal-overlay { align-items: center; }
+      .access-tabs { grid-template-columns: repeat(3, 1fr); }
+      .access-tab { text-align: center; }
+    }
+    @media (max-width: 480px) {
+      .player-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+      .player-name { grid-column: 1; grid-row: 1; }
+      .player-meta { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; padding-top: 2px; padding-right: 42px; }
+      .player-item > .btn:last-child { grid-column: 2; grid-row: 1; align-self: start; }
+      .session-actions .btn { min-height: 48px; }
     }
     #signOutWrap { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
     .btn-signout { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; padding: 0; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); color: rgba(255,255,255,.45); border-radius: 8px; cursor: pointer; transition: all .15s; }
@@ -450,6 +486,16 @@
       <button class="court-btn" data-n="4" onclick="setCourts(4)">4</button>
       <button class="court-btn" data-n="5" onclick="setCourts(5)">5</button>
       <button class="court-btn" data-n="6" onclick="setCourts(6)">6</button>
+    </div>
+    <div class="readonly-setting" id="courtReadOnly" hidden></div>
+    <div class="matchmaking">
+      <div class="matchmaking-label">Rotation Style</div>
+      <div class="matchmaking-options">
+        <button class="matchmaking-btn active" data-matchmaking-mode="social" onclick="setMatchmakingMode('social')">🤝 Social Fair</button>
+        <button class="matchmaking-btn" data-matchmaking-mode="balanced" onclick="setMatchmakingMode('balanced')">⭐ Skill Balanced</button>
+      </div>
+      <div class="readonly-setting" id="matchmakingReadOnly" hidden></div>
+      <div class="matchmaking-help" id="matchmakingHelp">Prioritizes fair play counts, waiting time, and fresh partners.</div>
     </div>
     <div class="stats-row">
       <div class="stat-cell"><div class="stat-num" id="sTotal">0</div><div class="stat-lbl">Players</div></div>
@@ -1201,6 +1247,7 @@ fbAuth.onAuthStateChanged(function(user) {
     });
 });
 </script>
+<script src="./vendor/qrcode.js"></script>
 <script src="./rotation-engine.js"></script>
 <script src="./app.js"></script>
 </body>
