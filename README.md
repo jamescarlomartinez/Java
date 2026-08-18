@@ -19,7 +19,7 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 - Each shared role has a context-sensitive **How to Use** guide, shown automatically on its first visit and available afterward from the session card.
 - Every shared action runs in a Firestore transaction and creates a top-level `roomEvents` record.
 - Organizer-only controls include clear-all, reset, undo, and end-session.
-- Ended rooms are read-only and expire after 30 days. Firestore TTL is configured for rooms, events, and membership proofs.
+- Ended rooms are read-only. They retain a cleanup date for future manual maintenance, but automatic Firestore TTL deletion is not enabled because it requires billing.
 - The footer shows the running app version. **Update App** clears old Pickleball caches, resets the service worker, and reloads the latest deployed release.
 
 ## Local verification
@@ -37,17 +37,15 @@ The rules test requires Java 11+ because the Firebase Firestore emulator is Java
 1. In Firebase Authentication, enable the **Anonymous** sign-in provider. Keep Google enabled for organizers.
 2. Confirm each organizer has a document in `allowedEmails` with an `email` field. The client records that document ID as the organizer grant when creating a room.
 3. No Cloud Functions, Cloud Messaging VAPID key, or Blaze plan is needed for turn alerts. Alerts are generated on the player's device from the room's existing live Firestore updates.
-4. Deploy Firestore rules, indexes, TTL field policies, and Firebase Hosting:
+4. Deploy Firestore rules, indexes, and Firebase Hosting:
 
    ```bash
    npx firebase deploy --only firestore:rules,firestore:indexes,hosting --project pickleball-rotation
    ```
 
-5. Wait for the `roomEvents(roomId ASC, createdAt DESC)` index and TTL policies for rooms, events, and memberships to finish provisioning.
+5. Wait for the `roomEvents(roomId ASC, createdAt DESC)` index to finish provisioning.
 6. Publish the static files through GitHub Pages and validate a private live room on two browsers before merging the feature branch.
 
 The Firebase project can remain on the Spark plan with billing disabled. Firestore and Hosting still have free usage limits; when a no-billing project exceeds a limit, service may be restricted rather than generating a paid bill.
-
-Firestore TTL deletion is asynchronous; an expired document can remain visible for a period before the service removes it.
 
 The player and view-only query parameters simplify the interface for trusted link holders; they are not secret capability tokens because a recipient can edit the URL. QR generation uses the vendored MIT-licensed [`qrcode`](https://github.com/soldair/node-qrcode) browser build, with its license retained in `vendor/qrcode.LICENSE`.

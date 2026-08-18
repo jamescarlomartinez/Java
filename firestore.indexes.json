@@ -11,24 +11,6 @@
   ],
   "fieldOverrides": [
     {
-      "collectionGroup": "rooms",
-      "fieldPath": "expiresAt",
-      "ttl": true,
-      "indexes": []
-    },
-    {
-      "collectionGroup": "roomEvents",
-      "fieldPath": "expiresAt",
-      "ttl": true,
-      "indexes": []
-    },
-    {
-      "collectionGroup": "roomMembers",
-      "fieldPath": "expiresAt",
-      "ttl": true,
-      "indexes": []
-    },
-    {
       "collectionGroup": "roomEvents",
       "fieldPath": "beforeState",
       "indexes": []
