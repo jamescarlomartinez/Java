@@ -148,6 +148,16 @@
     .court-btn.active { background: var(--primary); border-color: var(--primary-light); color: #fff; }
     .readonly-setting { min-height: 44px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: #a7f3d0; font-size: .86rem; font-weight: 800; }
 
+    .court-groups-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 14px 0 8px; padding-top: 14px; border-top: 1px solid rgba(42,90,62,.65); color: var(--primary-light); font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; }
+    .court-groups-heading small { color: var(--text-muted); font-size: .65rem; font-weight: 600; text-transform: none; letter-spacing: 0; text-align: right; }
+    #courtSkillGroups { display: grid; gap: 7px; }
+    .court-group-row { min-height: 48px; display: grid; grid-template-columns: minmax(72px, .55fr) minmax(0, 1fr); align-items: center; gap: 10px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font-size: .82rem; }
+    .court-group-select { width: 100%; min-height: 44px; padding: 8px 34px 8px 10px; border: 1px solid var(--primary); border-radius: 8px; background: var(--card2); color: var(--text); font: inherit; font-weight: 800; }
+    .court-skill-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 9px; border-radius: 999px; font-size: .66rem; font-weight: 900; line-height: 1.2; text-align: center; }
+    .court-skill-badge.group-any { color: #cdd5d1; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); }
+    .court-skill-badge.group-beginner { color: #7fffc2; background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.35); }
+    .court-skill-badge.group-intermediate_plus { color: #ffd58a; background: rgba(244,162,97,.12); border: 1px solid rgba(244,162,97,.35); }
+
     .matchmaking { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(42,90,62,.65); }
     .matchmaking-label { color: var(--primary-light); font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
     .matchmaking-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -185,7 +195,8 @@
     .court-card.is-playing { box-shadow: 0 0 0 2px rgba(82,183,136,.35); }
     .court-card.is-done    { box-shadow: 0 0 0 2px rgba(74,138,240,.25); }
 
-    .court-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .court-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+    .court-header-badges { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
     .court-name { font-size: 0.9rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #fff; display: flex; align-items: center; gap: 6px; }
     .court-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .dot-1 { background: #3aaf6a; }
@@ -303,6 +314,11 @@
     /* ── OFFLINE BAR ── */
     .offline-bar { display: none; background: #2a1400; color: #f4a261; padding: 7px 14px; text-align: center; font-size: 0.8rem; font-weight: 700; border-bottom: 1px solid rgba(244,162,97,.35); }
     .offline-bar.visible { display: block; }
+    .turn-alert { display: none; width: min(calc(100% - 20px), 804px); margin: 10px auto 0; padding: 13px 14px; grid-template-columns: 1fr auto; align-items: center; gap: 12px; color: #082519; background: linear-gradient(135deg, #6dffb0, #f4d35e); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.28); }
+    .turn-alert.visible { display: grid; }
+    .turn-alert-title { font-size: .98rem; font-weight: 950; }
+    .turn-alert-copy { margin-top: 2px; font-size: .76rem; font-weight: 700; line-height: 1.35; }
+    .turn-alert-close { min-width: 44px; min-height: 44px; border: 1px solid rgba(8,37,25,.25); border-radius: 9px; color: #082519; background: rgba(255,255,255,.3); font-size: 1rem; font-weight: 900; cursor: pointer; }
 
     /* ── NOT AVAILABLE ── */
     .player-item.not-avail { background: rgba(180,30,30,.07); }
@@ -420,6 +436,12 @@
     .qr-link-label { color: var(--text); font-size: .78rem; font-weight: 800; }
     .qr-url { color: var(--text-muted); font-size: .68rem; overflow-wrap: anywhere; text-align: center; line-height: 1.35; }
     .access-note { color: var(--text-muted); font-size: .7rem; line-height: 1.4; margin-top: 10px; }
+    .access-role-summary { margin-top: 10px; padding: 10px 12px; color: var(--text-dim); background: rgba(52,211,153,.07); border: 1px solid rgba(52,211,153,.22); border-radius: 10px; font-size: .76rem; line-height: 1.45; }
+    .help-steps { display: grid; gap: 9px; margin: 0; padding-left: 25px; color: var(--text); }
+    .help-steps li { padding: 10px 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); font-size: .82rem; line-height: 1.45; }
+    .help-steps li::marker { color: var(--accent); font-weight: 900; }
+    .alert-status-on { color: #7fffc2; border-color: rgba(52,211,153,.5); }
+    .alert-status-blocked, .alert-status-unavailable { color: #ffb0b0; border-color: rgba(230,57,70,.4); }
     .app-footer { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; color: var(--text-muted); border-top: 1px solid rgba(52,211,153,.16); margin: 18px 2px 0; padding: 14px 4px 24px; font-size: .72rem; }
     .app-version-copy { display: inline-flex; align-items: center; gap: 5px; }
     .app-version-copy strong { color: var(--text-dim); }
@@ -445,6 +467,9 @@
       .winner-row { flex-direction: column; }
       .winner-row button { min-height: 46px; }
       .skip-btn, .swap-btn, .swap-target-btn { min-height: 34px; padding: 5px 9px !important; }
+      .court-card-header { align-items: flex-start; }
+      .court-header-badges { max-width: 62%; }
+      .court-skill-badge { white-space: normal; }
     }
     @media (max-width: 360px) {
       .session-top { flex-wrap: wrap; }
@@ -462,6 +487,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 </head>
 <body>
 
@@ -496,6 +522,10 @@
 </header>
 
 <div class="offline-bar" id="offlineBar">📶 You're offline — all data is saved locally</div>
+<div class="turn-alert" id="turnAlert" role="alert" aria-live="assertive">
+  <div><div class="turn-alert-title"></div><div class="turn-alert-copy"></div></div>
+  <button class="turn-alert-close" type="button" onclick="dismissTurnAlert()" aria-label="Dismiss turn alert">✕</button>
+</div>
 
 <div class="container">
 
@@ -538,6 +568,7 @@
       <button class="court-btn" data-n="6" onclick="setCourts(6)">6</button>
     </div>
     <div class="readonly-setting" id="courtReadOnly" hidden></div>
+    <div id="courtSkillGroups"></div>
     <div class="matchmaking">
       <div class="matchmaking-label">Rotation Style</div>
       <div class="matchmaking-options">

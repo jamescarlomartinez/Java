@@ -86,7 +86,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v19-named-skill-levels/);
+  assert.match(serviceWorker, /pickleball-v20-skill-courts-alerts-help/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -95,8 +95,40 @@ test('service worker bypasses stale caches for releases and app code', () => {
   assert.match(app, /updateViaCache:\s*'none'/);
 });
 
-test('legacy numeric activity is displayed with named skill levels', () => {
+test('legacy numeric activity does not expose obsolete numeric levels', () => {
   assert.match(app, /function activitySummary\(event\)/);
-  assert.match(app, /Engine\.migrateLegacySkillRating/);
-  assert.match(app, /Engine\.skillLevelLabel/);
+  assert.doesNotMatch(app, /Engine\.migrateLegacySkillRating/);
+  assert.match(app, /previous skill level/);
+});
+
+test('two-level court designation controls and eligibility badges are present', () => {
+  assert.match(html, /id="courtSkillGroups"/);
+  assert.match(app, /function setCourtSkillGroup/);
+  assert.match(app, /Engine\.courtFillOrder/);
+  assert.match(app, /Engine\.eligibleIdsForCourt/);
+  assert.match(app, /court-skill-badge/);
+  assert.match(app, /Intermediate & Above/);
+  assert.doesNotMatch(app, /Expert \/ Pro/);
+});
+
+test('each shared role has context help and QR access summaries', () => {
+  assert.match(app, /var ROLE_HELP/);
+  assert.match(app, /Player Check-In · How to Use/);
+  assert.match(app, /View Only · How to Use/);
+  assert.match(app, /Controller · How to Use/);
+  assert.match(app, /❓ How to Use/);
+  assert.match(app, /pickleballHelpSeen_/);
+  assert.match(app, /accessRoleSummary/);
+  assert.match(html, /\.help-steps/);
+});
+
+test('player alerts use explicit permission, private subscriptions, and foreground alerts', () => {
+  assert.match(html, /firebase-messaging-compat\.js/);
+  assert.match(html, /id="turnAlert"/);
+  assert.match(app, /function enablePlayerAlerts/);
+  assert.match(app, /Notification\.requestPermission\(\)/);
+  assert.match(app, /pushSubscriptions/);
+  assert.match(app, /fbMessaging\.onMessage/);
+  assert.match(serviceWorker, /onBackgroundMessage/);
+  assert.match(serviceWorker, /notificationclick/);
 });

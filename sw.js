@@ -1,4 +1,31 @@
-const CACHE = 'pickleball-v19-named-skill-levels';
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
+  authDomain: 'pickleball-rotation.firebaseapp.com',
+  projectId: 'pickleball-rotation',
+  storageBucket: 'pickleball-rotation.firebasestorage.app',
+  messagingSenderId: '103026729080',
+  appId: '1:103026729080:web:e4087895e44f190efa0d8d'
+});
+
+var backgroundMessaging = firebase.messaging();
+
+backgroundMessaging.onBackgroundMessage(function(payload) {
+  var data = payload.data || {};
+  return self.registration.showNotification(data.title || 'Your pickleball game is ready!', {
+    body: data.body || 'Open the live rotation for your court assignment.',
+    icon: './icon-192.png',
+    badge: './icon-192.png',
+    tag: data.tag || data.deliveryId || 'pickleball-turn',
+    renotify: false,
+    vibrate: [180, 90, 180],
+    data: { url: data.url || './', deliveryId: data.deliveryId || '' }
+  });
+});
+
+const CACHE = 'pickleball-v20-skill-courts-alerts-help';
 const ASSETS = [
   './',
   './index.html',
@@ -26,6 +53,20 @@ self.addEventListener('install', function(e) {
 
 self.addEventListener('message', function(e) {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+self.addEventListener('notificationclick', function(e) {
+  e.notification.close();
+  var targetUrl = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
+    for (var index = 0; index < windowClients.length; index += 1) {
+      var client = windowClients[index];
+      if (new URL(client.url).origin === new URL(targetUrl).origin) {
+        return client.navigate(targetUrl).then(function(navigated) { return navigated.focus(); });
+      }
+    }
+    return self.clients.openWindow(targetUrl);
+  }));
 });
 
 self.addEventListener('activate', function(e) {

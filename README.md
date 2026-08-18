@@ -11,8 +11,11 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
   - `?room=<id>` opens normal controller mode.
   - `?room=<id>&mode=player` lets a player choose an existing roster name or enroll themselves, check in, take a break, return, or check out.
   - `?room=<id>&mode=view` opens a simplified live read-only board.
-- Social Fair remains the default rotation style. **Skill Balanced** uses Beginner, Novice, Low Intermediate, Intermediate, Advanced, and Expert / Pro levels to minimize the team-skill gap after game-count and waiting fairness.
-- Every new player requires an explicit skill level. Migrated numeric ratings remain playable as provisional named levels until confirmed, and checked-in players can update only their own level.
+- Social Fair remains the default rotation style. **Skill Balanced** uses **Beginner** and **Intermediate & Above** to minimize the team-skill gap after game-count and waiting fairness.
+- Every existing pre-v3.4 player is reset to an unconfirmed level. They may play on Any courts, but must choose one of the current levels before using a strict skill-designated court.
+- Controllers can designate every court as **Any level**, **Beginner**, or **Intermediate & Above**. Strict courts never mix levels and are filled before Any courts.
+- Checked-in players can explicitly enable phone alerts. A version-2 Firestore Cloud Function notifies only newly assigned players for new games and replacements; the open page also shows an in-app vibration alert.
+- Each shared role has a context-sensitive **How to Use** guide, shown automatically on its first visit and available afterward from the session card.
 - Every shared action runs in a Firestore transaction and creates a top-level `roomEvents` record.
 - Organizer-only controls include clear-all, reset, undo, and end-session.
 - Ended rooms are read-only and expire after 30 days. Firestore TTL is configured for rooms, events, and membership proofs.
@@ -24,6 +27,9 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 npm install
 npm test
 npm run test:rules
+cd functions
+npm install
+npm test
 ```
 
 The rules test requires Java 11+ because the Firebase Firestore emulator is Java-based.
@@ -32,14 +38,16 @@ The rules test requires Java 11+ because the Firebase Firestore emulator is Java
 
 1. In Firebase Authentication, enable the **Anonymous** sign-in provider. Keep Google enabled for organizers.
 2. Confirm each organizer has a document in `allowedEmails` with an `email` field. The client records that document ID as the organizer grant when creating a room.
-3. Deploy the Firestore rules, composite index, and TTL field policies:
+3. In Firebase Cloud Messaging, generate a Web Push certificate and set its public key in `FCM_VAPID_KEY` in `app.js`. iPhone users must install the PWA on their Home Screen before enabling alerts.
+4. Enable Cloud Functions and its required Google Cloud APIs. The project may need the Blaze plan for production function deployment.
+5. Deploy Functions, Firestore rules, indexes, and TTL field policies:
 
    ```bash
-   npx firebase deploy --only firestore:rules,firestore:indexes --project pickleball-rotation
+   npx firebase deploy --only functions,firestore:rules,firestore:indexes --project pickleball-rotation
    ```
 
-4. Wait for the `roomEvents(roomId ASC, createdAt DESC)` index to finish building.
-5. Publish the static files through GitHub Pages and validate a private live room on two browsers before merging the feature branch.
+6. Wait for the `roomEvents(roomId ASC, createdAt DESC)` index and TTL policies for rooms, events, memberships, push subscriptions, and delivery records to finish provisioning.
+7. Publish the static files through GitHub Pages and validate a private live room on two browsers before merging the feature branch.
 
 Firestore TTL deletion is asynchronous; an expired document can remain visible for a period before the service removes it.
 

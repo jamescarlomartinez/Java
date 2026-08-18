@@ -37,7 +37,7 @@ function room(overrides = {}) {
     organizerGrantId: 'grant-1',
     status: 'active',
     revision: 0,
-    state: { schemaVersion: 5, players: [] },
+    state: { schemaVersion: 6, players: [] },
     undoStack: [],
     lastEventId: 'event-0',
     createdAt: Timestamp.now(),
@@ -62,6 +62,14 @@ test.before(async () => {
     });
     await setDoc(doc(db, 'roomMembers/room-secret_guest-1'), {
       roomId: 'room-secret', uid: 'guest-1', displayName: 'Guest', joinedAt: Timestamp.now(), expiresAt: Timestamp.now()
+    });
+    await setDoc(doc(db, 'roomMembers/room-secret_player-alert'), {
+      roomId: 'room-secret', uid: 'player-alert', displayName: 'Player Alert',
+      role: 'player', playerId: 'p-alert', joinedAt: Timestamp.now(), expiresAt: Timestamp.now()
+    });
+    await setDoc(doc(db, 'roomMembers/room-secret_viewer-alert'), {
+      roomId: 'room-secret', uid: 'viewer-alert', displayName: 'Viewer Alert',
+      role: 'viewer', playerId: null, joinedAt: Timestamp.now(), expiresAt: Timestamp.now()
     });
     await setDoc(doc(db, 'roomEvents/event-0'), {
       roomId: 'room-secret', revision: 0, type: 'room_created', summary: 'Created room',
@@ -106,11 +114,44 @@ test('anonymous players and viewers can register their requested room role', { s
   }
 });
 
+test('a player can manage only their own matching push subscription and cannot list subscriptions', { skip: !emulatorAvailable }, async () => {
+  const db = env.authenticatedContext('player-alert', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+  const subscription = {
+    roomId: 'room-secret', uid: 'player-alert', playerId: 'p-alert',
+    token: 'valid-fcm-token-with-more-than-twenty-characters', enabled: true,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+  };
+  const ref = doc(db, 'pushSubscriptions/room-secret_player-alert');
+  await assertSucceeds(setDoc(ref, subscription));
+  await assertSucceeds(getDoc(ref));
+  await assertSucceeds(updateDoc(ref, {
+    token: 'refreshed-fcm-token-with-more-than-twenty-characters',
+    updatedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 172800000)
+  }));
+  await assertFails(getDocs(collection(db, 'pushSubscriptions')));
+
+  await assertFails(setDoc(doc(db, 'pushSubscriptions/room-secret_player-alert-wrong'), {
+    ...subscription, playerId: 'another-player'
+  }));
+});
+
+test('viewers and other authenticated users cannot impersonate a player subscription', { skip: !emulatorAvailable }, async () => {
+  const viewerDb = env.authenticatedContext('viewer-alert').firestore();
+  await assertFails(setDoc(doc(viewerDb, 'pushSubscriptions/room-secret_viewer-alert'), {
+    roomId: 'room-secret', uid: 'viewer-alert', playerId: 'p-alert',
+    token: 'viewer-token-with-more-than-twenty-characters', enabled: true,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(), expiresAt: Timestamp.now()
+  }));
+  await assertFails(getDoc(doc(viewerDb, 'pushSubscriptions/room-secret_player-alert')));
+  await assertFails(setDoc(doc(viewerDb, 'pushDeliveries/fake-delivery'), { roomId: 'room-secret' }));
+});
+
 test('a player-link guest can atomically add and claim their own roster entry', { skip: !emulatorAvailable }, async () => {
   await env.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'rooms/room-self-enroll'), room({
       name: 'Self enrollment room',
-      state: { schemaVersion: 5, players: [] },
+      state: { schemaVersion: 6, players: [] },
       lastEventId: 'self-seed'
     }));
   });
@@ -131,7 +172,7 @@ test('a player-link guest can atomically add and claim their own roster entry', 
     const nextState = JSON.parse(JSON.stringify(beforeState));
     nextState.players.push({
       id: playerId, name: 'Jordan', games: 0, wins: 0, notAvailable: false,
-      skillRating: 4, skillLevelConfirmed: true, checkedIn: true, checkedInUid: uid, checkedInName: 'Jordan', lastAssignedRound: -1
+      skillRating: 2, skillLevelConfirmed: true, checkedIn: true, checkedInUid: uid, checkedInName: 'Jordan', lastAssignedRound: -1
     });
     const nextRevision = data.revision + 1;
     transaction.update(roomRef, {
@@ -191,7 +232,7 @@ test('anonymous controllers can update normal room state but cannot end it', { s
   const db = env.authenticatedContext('guest-1', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
   const ref = doc(db, 'rooms/room-secret');
   await assertSucceeds(updateDoc(ref, {
-    state: { schemaVersion: 5, players: [{ id: 'p1', name: 'Amy' }] },
+    state: { schemaVersion: 6, players: [{ id: 'p1', name: 'Amy' }] },
     revision: 1,
     lastEventId: 'event-1',
     undoStack: ['event-1'],
@@ -212,7 +253,7 @@ test('organizer can end a room and guests cannot change lifecycle fields', { ski
   }));
   const guestDb = env.authenticatedContext('guest-1').firestore();
   await assertFails(updateDoc(doc(guestDb, 'rooms/room-lifecycle'), {
-    state: { schemaVersion: 5, players: [] }, revision: 2, lastEventId: 'late-event',
+    state: { schemaVersion: 6, players: [] }, revision: 2, lastEventId: 'late-event',
     undoStack: [], updatedAt: serverTimestamp()
   }));
 });
@@ -227,7 +268,7 @@ test('expired room summaries remain readable but read-only until TTL deletion', 
   const db = env.authenticatedContext('guest-1').firestore();
   await assertSucceeds(getDoc(doc(db, 'rooms/room-expired')));
   await assertFails(updateDoc(doc(db, 'rooms/room-expired'), {
-    state: { schemaVersion: 5, players: [] }, revision: 4,
+    state: { schemaVersion: 6, players: [] }, revision: 4,
     lastEventId: 'too-late', undoStack: [], updatedAt: serverTimestamp()
   }));
 });

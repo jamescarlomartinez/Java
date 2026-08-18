@@ -5,15 +5,12 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  var SCHEMA_VERSION = 5;
+  var SCHEMA_VERSION = 6;
   var SKILL_LEVELS = [
-    { value: 1, label: 'Beginner', description: 'Learning rules, scoring, and basic strokes.' },
-    { value: 2, label: 'Novice', description: 'Can serve and rally briefly; building consistency.' },
-    { value: 3, label: 'Low Intermediate', description: 'Understands positioning and can sustain rallies, but remains inconsistent under pressure.' },
-    { value: 4, label: 'Intermediate', description: 'Consistent serves, returns, positioning, and developing strategy.' },
-    { value: 5, label: 'Advanced', description: 'Strong control, placement, dinks, resets, and coordinated team play.' },
-    { value: 6, label: 'Expert / Pro', description: 'Tournament-level pace, consistency, strategy, and shot selection.' }
+    { value: 1, key: 'beginner', label: 'Beginner', description: 'Learning rules and building consistency.' },
+    { value: 2, key: 'intermediate_plus', label: 'Intermediate & Above', description: 'Consistent rallies, positioning, and strategy through advanced play.' }
   ];
+  var SKILL_GROUPS = ['any', 'beginner', 'intermediate_plus'];
 
   function skillLevelByValue(value) {
     var numericValue = Number(value);
@@ -22,23 +19,35 @@
 
   function skillLevelLabel(value) {
     var level = skillLevelByValue(value);
-    return level ? level.label : 'Needs skill level';
+    return level ? level.label : 'Choose level';
   }
 
   function normalizeSkillLevel(value) {
     var numericValue = Number(value);
-    return Number.isInteger(numericValue) && numericValue >= 1 && numericValue <= 6 ? numericValue : null;
+    return Number.isInteger(numericValue) && numericValue >= 1 && numericValue <= 2 ? numericValue : null;
   }
 
-  function migrateLegacySkillRating(value) {
-    var rating = Number(value);
-    if (!Number.isFinite(rating)) rating = 3;
-    if (rating <= 1) return 1;
-    if (rating <= 2) return 2;
-    if (rating <= 2.5) return 3;
-    if (rating <= 3.5) return 4;
-    if (rating <= 4.5) return 5;
-    return 6;
+  function normalizeSkillGroup(value) {
+    return SKILL_GROUPS.indexOf(value) !== -1 ? value : 'any';
+  }
+
+  function skillGroupLabel(value) {
+    value = normalizeSkillGroup(value);
+    if (value === 'beginner') return 'Beginner';
+    if (value === 'intermediate_plus') return 'Intermediate & Above';
+    return 'Any level';
+  }
+
+  function playerSkillWeight(player) {
+    return player && player.skillLevelConfirmed && normalizeSkillLevel(player.skillRating)
+      ? player.skillRating : 1.5;
+  }
+
+  function playerMatchesSkillGroup(player, skillGroup) {
+    skillGroup = normalizeSkillGroup(skillGroup);
+    if (skillGroup === 'any') return true;
+    if (!player || !player.skillLevelConfirmed) return false;
+    return skillGroup === 'beginner' ? player.skillRating === 1 : player.skillRating === 2;
   }
 
   function clone(value) {
@@ -66,7 +75,8 @@
       teamB: [],
       winner: null,
       assignmentRound: 0,
-      previousLastAssigned: {}
+      previousLastAssigned: {},
+      skillGroup: 'any'
     };
   }
 
@@ -99,6 +109,7 @@
       if (!Array.isArray(court.teamB)) court.teamB = [];
       if (!court.previousLastAssigned) court.previousLastAssigned = {};
       if (!court.status) court.status = 'empty';
+      court.skillGroup = normalizeSkillGroup(court.skillGroup);
     });
   }
 
@@ -129,7 +140,7 @@
         games: Number(legacy.playCounts && legacy.playCounts[name]) || 0,
         wins: Number(legacy.winCounts && legacy.winCounts[name]) || 0,
         notAvailable: !!(legacy.notAvailable && legacy.notAvailable[name]),
-        skillRating: 4,
+        skillRating: null,
         skillLevelConfirmed: false,
         checkedIn: false,
         checkedInUid: null,
@@ -146,7 +157,8 @@
         teamB: (court.teamB || []).map(function (name) { return idByName[name]; }).filter(Boolean),
         winner: court.winner || null,
         assignmentRound: 0,
-        previousLastAssigned: {}
+        previousLastAssigned: {},
+        skillGroup: 'any'
       };
     });
     state.history = (legacy.history || []).slice(0, 100).map(function (entry) {
@@ -173,20 +185,19 @@
       if (typeof player === 'string') {
         return {
           id: makeId('p'), name: player, games: 0, wins: 0, notAvailable: false,
-          skillRating: 4, skillLevelConfirmed: false,
+          skillRating: null, skillLevelConfirmed: false,
           checkedIn: false, checkedInUid: null, checkedInName: null, lastAssignedRound: -1
         };
       }
       var checkedIn = !!player.checkedIn && typeof player.checkedInUid === 'string' && player.checkedInUid.length > 0;
       var currentSkillLevel = sourceSchemaVersion >= SCHEMA_VERSION ? normalizeSkillLevel(player.skillRating) : null;
-      var normalizedSkillLevel = currentSkillLevel || migrateLegacySkillRating(player.skillRating);
       return {
         id: player.id || makeId('p'),
         name: String(player.name || 'Player'),
         games: Math.max(0, Number(player.games) || 0),
         wins: Math.max(0, Number(player.wins) || 0),
         notAvailable: !!player.notAvailable,
-        skillRating: normalizedSkillLevel,
+        skillRating: currentSkillLevel,
         skillLevelConfirmed: !!currentSkillLevel && !!player.skillLevelConfirmed,
         checkedIn: checkedIn,
         checkedInUid: checkedIn ? player.checkedInUid : null,
@@ -238,6 +249,22 @@
     return state.players.filter(function (player) {
       return !locked.has(player.id) && !player.notAvailable;
     }).map(function (player) { return player.id; });
+  }
+
+  function eligibleIdsForCourt(state, courtIndex) {
+    var court = state.courtStates[courtIndex];
+    if (!court) return [];
+    return availableIds(state).filter(function (id) {
+      return playerMatchesSkillGroup(playerById(state, id), court.skillGroup);
+    });
+  }
+
+  function courtFillOrder(state) {
+    return state.courtStates.map(function (_, index) { return index; }).sort(function (a, b) {
+      var aAny = normalizeSkillGroup(state.courtStates[a].skillGroup) === 'any';
+      var bAny = normalizeSkillGroup(state.courtStates[b].skillGroup) === 'any';
+      return Number(aAny) - Number(bAny) || a - b;
+    });
   }
 
   function compareStandings(a, b) {
@@ -412,8 +439,8 @@
           var last = playerById(state, id).lastAssignedRound;
           return sum + (last < 0 ? state.rotationRound + 2 : state.rotationRound - last);
         }, 0);
-        var teamASkill = partition[0].reduce(function (sum, id) { return sum + playerById(state, id).skillRating; }, 0);
-        var teamBSkill = partition[1].reduce(function (sum, id) { return sum + playerById(state, id).skillRating; }, 0);
+        var teamASkill = partition[0].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
+        var teamBSkill = partition[1].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
         var skillGap = state.matchmakingMode === 'balanced' ? Math.abs(teamASkill - teamBSkill) : 0;
         var teammateRepeats = (state.teammateCounts[pairKey(partition[0][0], partition[0][1])] || 0)
           + (state.teammateCounts[pairKey(partition[1][0], partition[1][1])] || 0);
@@ -431,8 +458,11 @@
   function assignGame(state, courtIndex, randomFn) {
     var court = state.courtStates[courtIndex];
     if (!court || court.status === 'playing') return { changed: false, reason: 'Court is already in play.' };
-    var available = availableIds(state);
-    if (available.length < 4) return { changed: false, reason: 'Need 4 available players; only ' + available.length + ' available.' };
+    var available = eligibleIdsForCourt(state, courtIndex);
+    if (available.length < 4) {
+      return { changed: false, reason: 'Court ' + court.courtNum + ' needs 4 available ' + skillGroupLabel(court.skillGroup)
+        + ' players; only ' + available.length + ' eligible.' };
+    }
     var assignment = chooseAssignment(state, available, randomFn);
     if (!assignment) return { changed: false, reason: 'Could not build a fair game.' };
     state.rotationRound += 1;
@@ -484,7 +514,9 @@
   function replacePlayer(state, courtIndex, team, playerIndex, replacementId) {
     var court = state.courtStates[courtIndex];
     if (!court || court.status !== 'playing') return { changed: false, reason: 'Game is not active.' };
-    if (availableIds(state).indexOf(replacementId) === -1) return { changed: false, reason: 'Replacement is no longer available.' };
+    if (eligibleIdsForCourt(state, courtIndex).indexOf(replacementId) === -1) {
+      return { changed: false, reason: 'Replacement is no longer available or does not match this court.' };
+    }
     var target = team === 'A' ? court.teamA : court.teamB;
     var outgoingId = target[playerIndex];
     var outgoing = playerById(state, outgoingId);
@@ -501,8 +533,8 @@
     return { changed: true, outgoing: outgoing, incoming: incoming };
   }
 
-  function fairReplacement(state) {
-    var ids = availableIds(state);
+  function fairReplacement(state, courtIndex) {
+    var ids = eligibleIdsForCourt(state, courtIndex);
     ids.sort(function (a, b) {
       var pa = playerById(state, a), pb = playerById(state, b);
       return pa.games - pb.games || pa.lastAssignedRound - pb.lastAssignedRound || pa.name.localeCompare(pb.name);
@@ -511,11 +543,13 @@
   }
 
   function resetCourts(state) {
+    var skillGroups = state.courtStates.map(function (court) { return normalizeSkillGroup(court.skillGroup); });
     state.history = [];
     state.teammateCounts = {};
     state.opponentCounts = {};
     state.courtStates = [];
     initCourtStates(state, state.courts);
+    state.courtStates.forEach(function (court, index) { court.skillGroup = skillGroups[index] || 'any'; });
     return state;
   }
 
@@ -535,6 +569,7 @@
   return {
     SCHEMA_VERSION: SCHEMA_VERSION,
     SKILL_LEVELS: SKILL_LEVELS,
+    SKILL_GROUPS: SKILL_GROUPS,
     clone: clone,
     makeId: makeId,
     createState: createState,
@@ -546,9 +581,14 @@
     skillLevelByValue: skillLevelByValue,
     skillLevelLabel: skillLevelLabel,
     normalizeSkillLevel: normalizeSkillLevel,
-    migrateLegacySkillRating: migrateLegacySkillRating,
+    normalizeSkillGroup: normalizeSkillGroup,
+    skillGroupLabel: skillGroupLabel,
+    playerSkillWeight: playerSkillWeight,
+    playerMatchesSkillGroup: playerMatchesSkillGroup,
     lockedIds: lockedIds,
     availableIds: availableIds,
+    eligibleIdsForCourt: eligibleIdsForCourt,
+    courtFillOrder: courtFillOrder,
     compareStandings: compareStandings,
     rankedPlayers: rankedPlayers,
     enrollPlayer: enrollPlayer,

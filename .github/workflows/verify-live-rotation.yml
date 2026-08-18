@@ -13,10 +13,12 @@ on:
       - "package.json"
       - "package-lock.json"
       - "tests/**"
+      - "functions/**"
       - ".github/workflows/verify-live-rotation.yml"
   push:
     branches:
       - "agent/live-shared-rotation"
+      - "agent/skill-courts-notifications-help"
 
 jobs:
   test:
@@ -35,3 +37,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run test:rules
+      - run: npm ci --prefix functions
+      - run: npm test --prefix functions
