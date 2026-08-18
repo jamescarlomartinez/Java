@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v19-named-skill-levels';
+const CACHE = 'pickleball-v20-skill-courts-alerts-help';
 const ASSETS = [
   './',
   './index.html',
@@ -26,6 +26,20 @@ self.addEventListener('install', function(e) {
 
 self.addEventListener('message', function(e) {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+self.addEventListener('notificationclick', function(e) {
+  e.notification.close();
+  var targetUrl = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
+    for (var index = 0; index < windowClients.length; index += 1) {
+      var client = windowClients[index];
+      if (new URL(client.url).origin === new URL(targetUrl).origin) {
+        return client.navigate(targetUrl).then(function(navigated) { return navigated.focus(); });
+      }
+    }
+    return self.clients.openWindow(targetUrl);
+  }));
 });
 
 self.addEventListener('activate', function(e) {

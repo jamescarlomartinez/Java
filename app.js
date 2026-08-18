@@ -1,7 +1,7 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
-var APP_VERSION = '3.3.0';
+var APP_VERSION = '3.4.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -40,6 +40,11 @@ var toastTimer = null;
 var deferredPrompt = null;
 var organizerGrantId = null;
 var appUpdateInProgress = false;
+var appServiceWorkerRegistration = null;
+var alertStatus = 'checking';
+var initialRoomSnapshotSeen = false;
+var lastTurnAlertKey = '';
+var ROLE_HELP_VERSION = 'v2';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -55,6 +60,43 @@ var fbAuth = firebase.auth();
 var fbDb = firebase.firestore();
 var FieldValue = firebase.firestore.FieldValue;
 var Timestamp = firebase.firestore.Timestamp;
+
+var ROLE_HELP = {
+  player: {
+    title: 'Player Check-In · How to Use',
+    copy: 'Use this access type to manage only your own player entry.',
+    steps: [
+      'Choose your roster name, or add yourself, then select Beginner or Intermediate & Above.',
+      'Tap Enable Alerts for a free device alert while this app is open or running in the background. A fully closed app cannot receive free alerts.',
+      'Use Take a Break when sitting out and I’m Ready when you want to return.',
+      'Use My Skill to update your level; it affects future assignments only.',
+      'Court badges show who each court is for. Standings and live games update automatically.',
+      'Tap Leave to check out. You cannot check out while you are in an active game.'
+    ]
+  },
+  viewer: {
+    title: 'View Only · How to Use',
+    copy: 'Use this access type to follow the session without changing it.',
+    steps: [
+      'Follow each live court and its Beginner, Intermediate & Above, or Any level badge.',
+      'Check Player Standings for games, wins, and win percentage.',
+      'Open Game History for completed games and Live Activity for recent controller actions.',
+      'The page updates automatically. Game controls are intentionally unavailable in View Only mode.'
+    ]
+  },
+  controller: {
+    title: 'Controller · How to Use',
+    copy: 'Use this access type to operate the shared rotation.',
+    steps: [
+      'Add players and edit their skill levels in the Players section.',
+      'Under Court Settings, designate each court as Any, Beginner, or Intermediate & Above.',
+      'Fill available courts or generate one court, then record the winning team.',
+      'Use Replace for a waiting eligible player and ⇄ to swap teams on the same court.',
+      'Use QR & Links to share Player Check-In, View Only, or Controller access.',
+      'Organizer only: Undo, Reset, Clear All, Reset Stats, and End Session.'
+    ]
+  }
+};
 
 function esc(value) {
   return String(value == null ? '' : value)
@@ -146,6 +188,173 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 3200);
+}
+
+function alertsStorageKey() {
+  return 'pickleballAlerts_' + roomId;
+}
+
+function alertButtonCopy() {
+  if (alertStatus === 'on') return '🔔 Alerts On';
+  if (alertStatus === 'blocked') return '🔕 Blocked';
+  if (alertStatus === 'unavailable') return '🔕 Unavailable';
+  if (alertStatus === 'enabling') return '↻ Enabling Alerts';
+  return '🔔 Enable Alerts';
+}
+
+function findPlayerAssignment(state, playerId) {
+  if (!state || !playerId) return null;
+  for (var courtIndex = 0; courtIndex < state.courtStates.length; courtIndex += 1) {
+    var court = state.courtStates[courtIndex];
+    if (court.status !== 'playing') continue;
+    var team = court.teamA.indexOf(playerId) !== -1 ? 'A' : court.teamB.indexOf(playerId) !== -1 ? 'B' : null;
+    if (!team) continue;
+    var ownTeam = team === 'A' ? court.teamA : court.teamB;
+    var otherTeam = team === 'A' ? court.teamB : court.teamA;
+    return {
+      courtNum: court.courtNum,
+      gameNum: court.gameNum,
+      partner: Engine.playerName(state, ownTeam.find(function (id) { return id !== playerId; })),
+      opponents: otherTeam.map(function (id) { return Engine.playerName(state, id); })
+    };
+  }
+  return null;
+}
+
+function dismissTurnAlert() {
+  var alert = document.getElementById('turnAlert');
+  if (alert) alert.classList.remove('visible');
+}
+
+function showTurnAlert(assignment, deliveryKey) {
+  if (!assignment || (deliveryKey && lastTurnAlertKey === deliveryKey)) return;
+  if (deliveryKey) lastTurnAlertKey = deliveryKey;
+  var alert = document.getElementById('turnAlert');
+  if (!alert) return;
+  alert.querySelector('.turn-alert-title').textContent = 'You’re up on Court ' + assignment.courtNum + '!';
+  alert.querySelector('.turn-alert-copy').textContent = 'Partner: ' + assignment.partner + ' · vs ' + assignment.opponents.join(' & ');
+  alert.classList.add('visible');
+  if (navigator.vibrate) navigator.vibrate([180, 90, 180]);
+}
+
+function showSystemTurnNotification(assignment, deliveryKey) {
+  if (!assignment || !localStorage.getItem(alertsStorageKey())) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return;
+  var title = 'You’re up on Court ' + assignment.courtNum + '!';
+  var body = 'Partner: ' + assignment.partner + ' · vs ' + assignment.opponents.join(' & ');
+  var registrationPromise = appServiceWorkerRegistration
+    ? Promise.resolve(appServiceWorkerRegistration)
+    : navigator.serviceWorker.ready;
+  registrationPromise.then(function (registration) {
+    appServiceWorkerRegistration = registration;
+    return registration.showNotification(title, {
+      body: body,
+      icon: './icon-192.png',
+      badge: './icon-192.png',
+      tag: deliveryKey || 'pickleball-turn',
+      renotify: false,
+      vibrate: [180, 90, 180],
+      data: { url: sharedRoomUrl('player'), deliveryId: deliveryKey || '' }
+    });
+  }).catch(function (error) { console.warn('Could not show turn notification:', error); });
+}
+
+function detectNewPlayerAssignment(beforeState, nextState, revision) {
+  if (accessMode !== 'player' || !linkedPlayerId || !initialRoomSnapshotSeen) return;
+  var before = findPlayerAssignment(beforeState, linkedPlayerId);
+  var after = findPlayerAssignment(nextState, linkedPlayerId);
+  if (!after) return;
+  if (before && before.courtNum === after.courtNum && before.gameNum === after.gameNum) return;
+  var deliveryKey = [roomId, revision, after.courtNum, after.gameNum, linkedPlayerId].join('_');
+  showTurnAlert(after, deliveryKey);
+  showSystemTurnNotification(after, deliveryKey);
+}
+
+function disablePlayerAlerts() {
+  localStorage.removeItem(alertsStorageKey());
+  if ('Notification' in window && 'serviceWorker' in navigator) {
+    alertStatus = Notification.permission === 'denied' ? 'blocked' : 'available';
+  }
+  renderSessionCard();
+  return Promise.resolve();
+}
+
+function enablePlayerAlerts() {
+  if (alertStatus === 'on') { showToast('Free alerts are on while this app remains open or running.'); return; }
+  if (alertStatus === 'blocked') {
+    showToast('Notifications are blocked. Allow them in your browser or phone settings.'); return;
+  }
+  if (alertStatus === 'unavailable') {
+    showToast(/iPhone|iPad|iPod/.test(navigator.userAgent) ? 'On iPhone, install and open this app from your Home Screen to use free alerts.' : 'Device alerts are unavailable here. Keep the page open for the in-app alert.');
+    return;
+  }
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    alertStatus = 'unavailable';
+    renderSessionCard();
+    return;
+  }
+  alertStatus = 'enabling';
+  renderSessionCard();
+  var permissionPromise = Notification.permission === 'default'
+    ? Notification.requestPermission()
+    : Promise.resolve(Notification.permission);
+  permissionPromise.then(function (permission) {
+    if (permission === 'granted') {
+      localStorage.setItem(alertsStorageKey(), '1');
+      alertStatus = 'on';
+      showToast('Free alerts enabled. Keep the app open or running in the background.');
+    } else {
+      localStorage.removeItem(alertsStorageKey());
+      alertStatus = permission === 'denied' ? 'blocked' : 'available';
+      showToast('Alerts were not enabled. In-app alerts still work while this page is open.');
+    }
+    renderSessionCard();
+  }).catch(function (error) {
+    console.warn('Could not enable alerts:', error);
+    alertStatus = Notification.permission === 'denied' ? 'blocked' : 'unavailable';
+    renderSessionCard();
+    showToast('Could not enable device alerts. In-app alerts still work while this page is open.');
+  });
+}
+
+function refreshPlayerAlerts() {
+  if (accessMode !== 'player') return;
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    alertStatus = 'unavailable'; renderSessionCard(); return;
+  }
+  alertStatus = Notification.permission === 'denied'
+    ? 'blocked'
+    : Notification.permission === 'granted' && localStorage.getItem(alertsStorageKey())
+      ? 'on'
+      : 'available';
+  renderSessionCard();
+}
+
+function currentHelpRole() {
+  return accessMode === 'player' && !isOrganizer ? 'player' : accessMode === 'viewer' && !isOrganizer ? 'viewer' : 'controller';
+}
+
+function openRoleHelp(role, automatic) {
+  role = role || currentHelpRole();
+  var guide = ROLE_HELP[role] || ROLE_HELP.controller;
+  localStorage.setItem('pickleballHelpSeen_' + ROLE_HELP_VERSION + '_' + role, '1');
+  var modal = openModal({
+    title: guide.title,
+    copy: guide.copy,
+    body: '<ol class="help-steps">' + guide.steps.map(function (step) { return '<li>' + esc(step) + '</li>'; }).join('') + '</ol>'
+  });
+  var done = document.createElement('button');
+  done.className = 'btn btn-primary';
+  done.textContent = automatic ? 'Got It' : 'Close Guide';
+  done.onclick = closeModal;
+  modal.actions.appendChild(done);
+}
+
+function maybeShowRoleHelp() {
+  if (!roomId) return;
+  var role = currentHelpRole();
+  var key = 'pickleballHelpSeen_' + ROLE_HELP_VERSION + '_' + role;
+  if (!localStorage.getItem(key)) setTimeout(function () { openRoleHelp(role, true); }, 350);
 }
 
 function renderAppVersion() {
@@ -373,25 +582,27 @@ function ensurePlayerIdentity() {
     }
 
     function showExistingPlayerForm(player) {
-      var selectedRating = player.skillRating;
+      var selectedRating = player.skillLevelConfirmed ? player.skillRating : null;
       var modal = openModal({
         title: 'Check in as ' + player.name,
         copy: player.skillLevelConfirmed
           ? 'Confirm your name and skill level before joining the rotation.'
-          : 'We converted the previous rating to a provisional level. Confirm it or choose a better match.',
+          : 'Choose one of the two current skill levels before joining the rotation.',
         body: '<div class="identity-summary"><span>Player name</span><strong>' + esc(player.name) + '</strong></div>'
           + skillRatingQuestion(selectedRating),
         closable: false
       });
-      bindSkillRatingQuestion(modal.body, function (rating) { selectedRating = rating; });
+      var join;
+      bindSkillRatingQuestion(modal.body, function (rating) { selectedRating = rating; if (join) join.disabled = false; });
       var back = document.createElement('button');
       back.className = 'btn btn-ghost';
       back.textContent = '← Back';
       back.onclick = showPicker;
-      var join = document.createElement('button');
+      join = document.createElement('button');
       join.className = 'btn btn-primary';
       join.textContent = player.skillLevelConfirmed ? 'Check In' : 'Confirm & Check In';
-      join.onclick = function () { finishIdentity(player, selectedRating, null); };
+      join.disabled = !selectedRating;
+      join.onclick = function () { if (selectedRating) finishIdentity(player, selectedRating, null); };
       modal.actions.appendChild(back);
       modal.actions.appendChild(join);
     }
@@ -533,6 +744,8 @@ function initSharedRoom(user) {
       initUi();
       subscribeToRoom();
       subscribeToEvents();
+      maybeShowRoleHelp();
+      refreshPlayerAlerts();
   }).catch(function (error) {
     appInitialised = false;
     setAuthMessage('Could not join game', error.message || 'The shared room is unavailable.', false);
@@ -549,8 +762,12 @@ function subscribeToRoom() {
       renderSessionCard();
       return;
     }
+    var previousState = S;
     roomData = snapshot.data();
-    S = Engine.normalizeState(roomData.state);
+    var nextState = Engine.normalizeState(roomData.state);
+    detectNewPlayerAssignment(previousState, nextState, roomData.revision);
+    S = nextState;
+    initialRoomSnapshotSeen = true;
     isOrganizer = roomData.hostUid === currentUser.uid;
     if (roomData.status === 'ended') syncStatus = 'ended';
     else if (!navigator.onLine || snapshot.metadata.fromCache) syncStatus = 'offline';
@@ -765,6 +982,23 @@ function setCourts(count) {
   });
 }
 
+function setCourtSkillGroup(index, group) {
+  group = Engine.normalizeSkillGroup(group);
+  var court = S.courtStates[index];
+  if (!court || court.skillGroup === group) return;
+  runAction('court_skill_group_changed', function (state) {
+    var target = state.courtStates[index];
+    if (!target) return { changed: false, reason: 'Court not found.' };
+    target.skillGroup = group;
+    var label = Engine.skillGroupLabel(group);
+    return {
+      changed: true,
+      message: 'Court ' + target.courtNum + ' is now for ' + label + '.',
+      summary: 'Designated Court ' + target.courtNum + ' for ' + label
+    };
+  });
+}
+
 function generateForCourt(index) {
   runAction('game_started', function (state) {
     var result = Engine.assignGame(state, index);
@@ -781,13 +1015,16 @@ function generateForCourt(index) {
 function fillAvailableCourts() {
   runAction('courts_filled', function (state) {
     var filled = [];
-    state.courtStates.forEach(function (court, index) {
+    var skipped = [];
+    Engine.courtFillOrder(state).forEach(function (index) {
+      var court = state.courtStates[index];
       if (court.status !== 'playing') {
         var result = Engine.assignGame(state, index);
         if (result.changed) filled.push(result.court.courtNum);
+        else skipped.push(result.reason);
       }
     });
-    if (!filled.length) return { changed: false, reason: 'All courts are active or fewer than 4 players are available.' };
+    if (!filled.length) return { changed: false, reason: skipped[0] || 'All courts are active.' };
     return {
       changed: true,
       message: 'Started ' + filled.length + ' fair game' + (filled.length === 1 ? '' : 's') + '!',
@@ -856,8 +1093,8 @@ function openReplacementPicker(courtIndex, team, playerIndex) {
   if (!court || court.status !== 'playing') return;
   var outgoingId = (team === 'A' ? court.teamA : court.teamB)[playerIndex];
   var outgoingName = Engine.playerName(S, outgoingId);
-  var ids = Engine.availableIds(S);
-  if (!ids.length) { showToast('No available players can replace ' + outgoingName + '.'); return; }
+  var ids = Engine.eligibleIdsForCourt(S, courtIndex);
+  if (!ids.length) { showToast('No available ' + Engine.skillGroupLabel(court.skillGroup) + ' players can replace ' + outgoingName + '.'); return; }
   ids.sort(function (a, b) {
     var pa = Engine.playerById(S, a), pb = Engine.playerById(S, b);
     return pa.games - pb.games || pa.lastAssignedRound - pb.lastAssignedRound || pa.name.localeCompare(pb.name);
@@ -872,7 +1109,7 @@ function openReplacementPicker(courtIndex, team, playerIndex) {
   automatic.className = 'picker-option replacement-option auto-replacement';
   automatic.innerHTML = '<span class="replacement-main"><strong>✨ Auto-pick fairest</strong><span class="replacement-skill">Recommended</span></span>'
     + '<span class="replacement-detail">Lowest games played, then longest wait and best matchup</span>';
-  automatic.onclick = function () { closeModal(); replaceCurrentPlayer(courtIndex, team, playerIndex, Engine.fairReplacement(S), outgoingId); };
+  automatic.onclick = function () { closeModal(); replaceCurrentPlayer(courtIndex, team, playerIndex, Engine.fairReplacement(S, courtIndex), outgoingId); };
   list.appendChild(automatic);
   ids.forEach(function (id) {
     var player = Engine.playerById(S, id);
@@ -907,7 +1144,7 @@ function replaceCurrentPlayer(courtIndex, team, playerIndex, replacementId, expe
 }
 
 function skipPlayer(courtIndex, team, playerIndex) {
-  var replacementId = Engine.fairReplacement(S);
+  var replacementId = Engine.fairReplacement(S, courtIndex);
   if (!replacementId) { showToast('No available replacement player.'); return; }
   replaceCurrentPlayer(courtIndex, team, playerIndex, replacementId);
 }
@@ -1109,6 +1346,12 @@ function renderAccessQr(mode) {
   });
   document.getElementById('accessLinkLabel').textContent = accessLabel(mode) + ' link';
   document.getElementById('accessLinkUrl').textContent = url;
+  var summaries = {
+    player: 'Players can add or choose their own name, select a level, check in, take a break, edit their level, and enable free turn alerts while the app is running.',
+    viewer: 'Viewers can follow courts, standings, history, and activity, but cannot change the game.',
+    controller: 'Controllers can manage players, court designations, rotations, winners, replacements, and team swaps.'
+  };
+  document.getElementById('accessRoleSummary').textContent = summaries[mode];
   document.getElementById('accessCopyBtn').onclick = function () { copyShareLink(mode); };
   document.getElementById('accessShareBtn').onclick = function () { shareRoomLink(mode); };
   var canvas = document.getElementById('accessQrCanvas');
@@ -1132,6 +1375,7 @@ function openAccessLinks() {
       + '<button class="access-tab" type="button" data-access-mode="controller">🎛 Controller</button></div>'
       + '<div class="qr-shell"><canvas id="accessQrCanvas" class="qr-canvas" aria-label="QR code"></canvas>'
       + '<div class="qr-link-label" id="accessLinkLabel"></div><div class="qr-url" id="accessLinkUrl"></div></div>'
+      + '<div class="access-role-summary" id="accessRoleSummary"></div>'
       + '<div class="access-note">Player link guests can choose an existing roster name or add themselves. Anyone with the controller link can control the game. These links are not password-protected roles.</div>'
   });
   modal.body.querySelectorAll('[data-access-mode]').forEach(function (button) {
@@ -1146,6 +1390,11 @@ function openAccessLinks() {
 }
 
 function leaveSharedRoom() {
+  if (roomData && roomData.status !== 'active') {
+    if (accessMode === 'player') disablePlayerAlerts().then(navigateHome);
+    else navigateHome();
+    return;
+  }
   if (accessMode === 'player' && linkedPlayerId && currentUser) {
     var player = Engine.playerById(S, linkedPlayerId);
     if (player && player.checkedIn && player.checkedInUid === currentUser.uid) {
@@ -1156,10 +1405,12 @@ function leaveSharedRoom() {
       }, { selfService: true, undoable: false }).then(function (result) {
         if (!result) return;
         localStorage.removeItem(playerStorageKey());
-        navigateHome();
+        return disablePlayerAlerts().then(navigateHome);
       });
       return;
     }
+    disablePlayerAlerts().then(navigateHome);
+    return;
   }
   navigateHome();
 }
@@ -1279,15 +1530,19 @@ function renderSessionCard() {
       + (sessionDisabled ? 'disabled' : '') + '>' + (player && player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
       + (player ? '<button class="btn btn-ghost" onclick="openSkillPicker(\'' + esc(player.id) + '\')" '
         + (sessionDisabled ? 'disabled' : '') + '>⭐ My Skill: ' + esc(Engine.skillLevelLabel(player.skillRating))
-        + (player.skillLevelConfirmed ? '' : ' · Confirm') + '</button>' : '');
+        + (player.skillLevelConfirmed ? '' : ' · Confirm') + '</button>' : '')
+      + '<button class="btn btn-ghost alert-status-' + esc(alertStatus) + '" onclick="enablePlayerAlerts()" '
+        + (alertStatus === 'enabling' ? 'disabled' : '') + '>' + esc(alertButtonCopy()) + '</button>';
   }
   card.innerHTML = '<div class="session-top"><div><div class="session-title">' + esc(roomData ? roomData.name : 'Live game') + '</div>'
     + '<div class="session-sub">Live shared rotation · ' + esc(roleText) + '</div></div>'
     + '<span class="sync-badge ' + esc(syncStatus) + '">' + esc(statusText) + '</span></div>'
     + '<div class="room-identity">' + (accessMode === 'player' ? 'Checked in as ' : accessMode === 'viewer' ? 'Watching as ' : 'Controlling as ') + '<strong>' + esc(controllerName || 'Guest') + '</strong></div>'
     + '<div class="session-actions">' + actions
+    + '<button class="btn btn-ghost" onclick="openRoleHelp()">❓ How to Use</button>'
     + '<button class="btn btn-ghost" onclick="leaveSharedRoom()">Leave</button>'
-    + '</div>';
+    + '</div>'
+    + (accessMode === 'player' && !isOrganizer ? '<div class="free-alert-note">Free alerts work while this app is open or running in the background. A fully closed app cannot receive alerts.</div>' : '');
 }
 
 function renderPlayerList() {
@@ -1324,6 +1579,22 @@ function renderMatchmakingMode() {
     : 'Prioritizes fair play counts, waiting time, and fresh partners.';
   var readOnly = document.getElementById('matchmakingReadOnly');
   if (readOnly) readOnly.textContent = S.matchmakingMode === 'balanced' ? '⭐ Skill Balanced' : '🤝 Social Fair';
+}
+
+function renderCourtSkillGroups() {
+  var element = document.getElementById('courtSkillGroups');
+  if (!element) return;
+  var editable = isFullController();
+  element.innerHTML = '<div class="court-groups-heading"><span>Court Skill Designation</span><small>Used for the next generated game</small></div>'
+    + S.courtStates.map(function (court, index) {
+      var label = Engine.skillGroupLabel(court.skillGroup);
+      if (!editable) {
+        return '<div class="court-group-row"><strong>Court ' + court.courtNum + '</strong><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(label) + '</span></div>';
+      }
+      return '<label class="court-group-row"><strong>Court ' + court.courtNum + '</strong><select class="court-group-select" aria-label="Court ' + court.courtNum + ' skill designation" onchange="setCourtSkillGroup(' + index + ', this.value)">'
+        + Engine.SKILL_GROUPS.map(function (group) { return '<option value="' + group + '"' + (court.skillGroup === group ? ' selected' : '') + '>' + esc(Engine.skillGroupLabel(group)) + '</option>'; }).join('')
+        + '</select></label>';
+    }).join('');
 }
 
 function syncCourtButtons() {
@@ -1398,10 +1669,12 @@ function renderCourtCard(court, index) {
   } else if (court.status === 'done') {
     body = teamsHtml(court, index, true) + '<button class="btn btn-accent btn-block" style="margin-top:12px" onclick="generateForCourt(' + index + ')">▶ Generate Next Game</button>';
   } else {
-    body = '<div class="court-empty-body">No game assigned yet.</div><button class="btn btn-primary btn-block" onclick="generateForCourt(' + index + ')">▶ Generate Next Game</button>';
+    var eligible = Engine.eligibleIdsForCourt(S, index).length;
+    var eligibility = court.skillGroup === 'any' ? 'No game assigned yet.' : eligible + ' of 4 ' + Engine.skillGroupLabel(court.skillGroup) + ' players eligible.';
+    body = '<div class="court-empty-body">' + esc(eligibility) + '</div><button class="btn btn-primary btn-block" onclick="generateForCourt(' + index + ')">▶ Generate Next Game</button>';
   }
   return '<div class="court-card court-card-' + color + (court.status === 'playing' ? ' is-playing' : court.status === 'done' ? ' is-done' : '') + '">'
-    + '<div class="court-card-header"><div class="court-name"><span class="court-dot dot-' + color + '"></span>Court ' + court.courtNum + '</div>' + statusBadgeHtml(court.status) + '</div>' + body + '</div>';
+    + '<div class="court-card-header"><div class="court-name"><span class="court-dot dot-' + color + '"></span>Court ' + court.courtNum + '</div><div class="court-header-badges"><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(Engine.skillGroupLabel(court.skillGroup)) + '</span>' + statusBadgeHtml(court.status) + '</div></div>' + body + '</div>';
 }
 
 function renderCourtsSection() {
@@ -1431,23 +1704,14 @@ function renderHistorySection() {
 
 function activitySummary(event) {
   var summary = String(event.summary || event.type || 'Activity');
-  function legacyLevel(value) {
-    return Engine.skillLevelLabel(Engine.migrateLegacySkillRating(Number(value)));
-  }
   if (event.type === 'player_checked_in') {
-    return summary.replace(/ checked in with a (\d(?:\.\d)?) skill rating$/, function (_, value) {
-      return ' checked in as ' + legacyLevel(value);
-    });
+    return summary.replace(/ checked in with a \d(?:\.\d)? skill rating$/, ' checked in with a previous skill level');
   }
   if (event.type === 'player_self_skill_changed') {
-    return summary.replace(/ updated their skill rating to (\d(?:\.\d)?)$/, function (_, value) {
-      return ' updated their skill level to ' + legacyLevel(value);
-    });
+    return summary.replace(/ updated their skill rating to \d(?:\.\d)?$/, ' updated their previous skill level');
   }
   if (event.type === 'player_skill_changed') {
-    return summary.replace(/^Rated (.+) at (\d(?:\.\d)?)$/, function (_, name, value) {
-      return 'Set ' + name + ' to ' + legacyLevel(value);
-    });
+    return summary.replace(/^Rated (.+) at \d(?:\.\d)?$/, 'Updated $1’s previous skill level');
   }
   return summary;
 }
@@ -1498,7 +1762,7 @@ function syncControlState() {
   ['playerCard', 'courtSettingsCard', 'actionControls', 'courtsSection'].forEach(function (id) {
     var root = document.getElementById(id);
     if (!root) return;
-    root.querySelectorAll('button,input').forEach(function (control) { control.disabled = unavailable || roleReadOnly || control.hasAttribute('data-force-disabled'); });
+    root.querySelectorAll('button,input,select').forEach(function (control) { control.disabled = unavailable || roleReadOnly || control.hasAttribute('data-force-disabled'); });
   });
   var inputRow = document.querySelector('#playerCard .input-row');
   if (inputRow) inputRow.hidden = roleReadOnly;
@@ -1521,6 +1785,7 @@ function renderAll() {
   renderSessionCard();
   syncCourtButtons();
   renderMatchmakingMode();
+  renderCourtSkillGroups();
   updateStats();
   renderPlayerList();
   renderAvailableSection();
@@ -1615,7 +1880,9 @@ if (sessionStorage.getItem('pickleballUpdateRequested')) {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(function (registration) {
+      appServiceWorkerRegistration = registration;
       registration.update().catch(function () {});
+      if (appInitialised && roomId && accessMode === 'player') refreshPlayerAlerts();
     }).catch(function (error) { console.warn('Service worker failed:', error); });
   });
 }
