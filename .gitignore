@@ -9,4 +9,5 @@ firebase-debug.log
 firestore-debug.log
 .playwright-cli/
 output/
+.firebase-public/
 *.local

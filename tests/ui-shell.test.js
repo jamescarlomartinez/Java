@@ -10,6 +10,8 @@ const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 const serviceWorker = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
 const release = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'version.json'), 'utf8'));
 const packageInfo = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'firebase.json'), 'utf8'));
+const hostingBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'prepare-hosting.js'), 'utf8');
 
 function zIndexFor(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -93,6 +95,15 @@ test('service worker bypasses stale caches for releases and app code', () => {
   assert.match(serviceWorker, /clients\.matchAll/);
   assert.match(serviceWorker, /client\.navigate/);
   assert.match(app, /updateViaCache:\s*'none'/);
+});
+
+test('Firebase Hosting publishes only the explicit app bundle', () => {
+  assert.equal(firebaseConfig.hosting.public, '.firebase-public');
+  assert.equal(firebaseConfig.hosting.predeploy, 'node scripts/prepare-hosting.js');
+  for (const requiredFile of ['index.html', 'app.js', 'rotation-engine.js', 'sw.js', 'vendor/qrcode.js']) {
+    assert.match(hostingBuild, new RegExp(requiredFile.replace('.', '\\.')));
+  }
+  assert.doesNotMatch(hostingBuild, /README\.md|package-lock|firestore\.rules|src\//);
 });
 
 test('legacy numeric activity does not expose obsolete numeric levels', () => {
