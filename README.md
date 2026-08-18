@@ -37,14 +37,16 @@ The rules test requires Java 11+ because the Firebase Firestore emulator is Java
 1. In Firebase Authentication, enable the **Anonymous** sign-in provider. Keep Google enabled for organizers.
 2. Confirm each organizer has a document in `allowedEmails` with an `email` field. The client records that document ID as the organizer grant when creating a room.
 3. No Cloud Functions, Cloud Messaging VAPID key, or Blaze plan is needed for turn alerts. Alerts are generated on the player's device from the room's existing live Firestore updates.
-4. Deploy Firestore rules, indexes, and TTL field policies:
+4. Deploy Firestore rules, indexes, TTL field policies, and Firebase Hosting:
 
    ```bash
-   npx firebase deploy --only firestore:rules,firestore:indexes --project pickleball-rotation
+   npx firebase deploy --only firestore:rules,firestore:indexes,hosting --project pickleball-rotation
    ```
 
 5. Wait for the `roomEvents(roomId ASC, createdAt DESC)` index and TTL policies for rooms, events, and memberships to finish provisioning.
 6. Publish the static files through GitHub Pages and validate a private live room on two browsers before merging the feature branch.
+
+The Firebase project can remain on the Spark plan with billing disabled. Firestore and Hosting still have free usage limits; when a no-billing project exceeds a limit, service may be restricted rather than generating a paid bill.
 
 Firestore TTL deletion is asynchronous; an expired document can remain visible for a period before the service removes it.
 
