@@ -1465,7 +1465,7 @@ function undoLastAction() {
 
 function endSharedRoom() {
   if (!isOrganizer || !roomData || roomData.status !== 'active') return;
-  if (!confirm('End this shared session? It will become read-only and be archived for 30 days.')) return;
+  if (!confirm('End this shared session? It will become read-only.')) return;
   var expiresAt = Timestamp.fromMillis(Date.now() + THIRTY_DAYS);
   var endEventRef = fbDb.collection('roomEvents').doc();
   fbDb.runTransaction(function (transaction) {
@@ -1498,7 +1498,7 @@ function endSharedRoom() {
     var batch = fbDb.batch();
     snapshot.docs.forEach(function (doc) { batch.update(doc.ref, { expiresAt: expiresAt }); });
     return snapshot.empty ? null : batch.commit();
-  }).then(function () { showToast('Session ended and archived for 30 days.'); })
+  }).then(function () { showToast('Session ended. It is now read-only.'); })
     .catch(function (error) { showToast(error.message || 'Could not end the session.'); });
 }
 

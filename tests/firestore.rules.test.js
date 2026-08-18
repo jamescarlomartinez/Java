@@ -217,7 +217,7 @@ test('organizer can end a room and guests cannot change lifecycle fields', { ski
   }));
 });
 
-test('expired room summaries remain readable but read-only until TTL deletion', { skip: !emulatorAvailable }, async () => {
+test('ended room summaries remain readable but read-only without automatic TTL deletion', { skip: !emulatorAvailable }, async () => {
   await env.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'rooms/room-expired'), room({
       status: 'ended', revision: 3, endedAt: Timestamp.fromMillis(Date.now() - 86400000),
