@@ -13,7 +13,6 @@ on:
       - "package.json"
       - "package-lock.json"
       - "tests/**"
-      - "functions/**"
       - ".github/workflows/verify-live-rotation.yml"
   push:
     branches:
@@ -37,5 +36,3 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run test:rules
-      - run: npm ci --prefix functions
-      - run: npm test --prefix functions

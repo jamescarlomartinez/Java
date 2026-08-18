@@ -63,14 +63,6 @@ test.before(async () => {
     await setDoc(doc(db, 'roomMembers/room-secret_guest-1'), {
       roomId: 'room-secret', uid: 'guest-1', displayName: 'Guest', joinedAt: Timestamp.now(), expiresAt: Timestamp.now()
     });
-    await setDoc(doc(db, 'roomMembers/room-secret_player-alert'), {
-      roomId: 'room-secret', uid: 'player-alert', displayName: 'Player Alert',
-      role: 'player', playerId: 'p-alert', joinedAt: Timestamp.now(), expiresAt: Timestamp.now()
-    });
-    await setDoc(doc(db, 'roomMembers/room-secret_viewer-alert'), {
-      roomId: 'room-secret', uid: 'viewer-alert', displayName: 'Viewer Alert',
-      role: 'viewer', playerId: null, joinedAt: Timestamp.now(), expiresAt: Timestamp.now()
-    });
     await setDoc(doc(db, 'roomEvents/event-0'), {
       roomId: 'room-secret', revision: 0, type: 'room_created', summary: 'Created room',
       actorUid: 'host-1', actorName: 'Host', createdAt: Timestamp.now(), expiresAt: Timestamp.now()
@@ -112,39 +104,6 @@ test('anonymous players and viewers can register their requested room role', { s
       joinedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
     }));
   }
-});
-
-test('a player can manage only their own matching push subscription and cannot list subscriptions', { skip: !emulatorAvailable }, async () => {
-  const db = env.authenticatedContext('player-alert', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
-  const subscription = {
-    roomId: 'room-secret', uid: 'player-alert', playerId: 'p-alert',
-    token: 'valid-fcm-token-with-more-than-twenty-characters', enabled: true,
-    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-    expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
-  };
-  const ref = doc(db, 'pushSubscriptions/room-secret_player-alert');
-  await assertSucceeds(setDoc(ref, subscription));
-  await assertSucceeds(getDoc(ref));
-  await assertSucceeds(updateDoc(ref, {
-    token: 'refreshed-fcm-token-with-more-than-twenty-characters',
-    updatedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 172800000)
-  }));
-  await assertFails(getDocs(collection(db, 'pushSubscriptions')));
-
-  await assertFails(setDoc(doc(db, 'pushSubscriptions/room-secret_player-alert-wrong'), {
-    ...subscription, playerId: 'another-player'
-  }));
-});
-
-test('viewers and other authenticated users cannot impersonate a player subscription', { skip: !emulatorAvailable }, async () => {
-  const viewerDb = env.authenticatedContext('viewer-alert').firestore();
-  await assertFails(setDoc(doc(viewerDb, 'pushSubscriptions/room-secret_viewer-alert'), {
-    roomId: 'room-secret', uid: 'viewer-alert', playerId: 'p-alert',
-    token: 'viewer-token-with-more-than-twenty-characters', enabled: true,
-    createdAt: serverTimestamp(), updatedAt: serverTimestamp(), expiresAt: Timestamp.now()
-  }));
-  await assertFails(getDoc(doc(viewerDb, 'pushSubscriptions/room-secret_player-alert')));
-  await assertFails(setDoc(doc(viewerDb, 'pushDeliveries/fake-delivery'), { roomId: 'room-secret' }));
 });
 
 test('a player-link guest can atomically add and claim their own roster entry', { skip: !emulatorAvailable }, async () => {

@@ -29,18 +29,6 @@
       "indexes": []
     },
     {
-      "collectionGroup": "pushSubscriptions",
-      "fieldPath": "expiresAt",
-      "ttl": true,
-      "indexes": []
-    },
-    {
-      "collectionGroup": "pushDeliveries",
-      "fieldPath": "expiresAt",
-      "ttl": true,
-      "indexes": []
-    },
-    {
       "collectionGroup": "roomEvents",
       "fieldPath": "beforeState",
       "indexes": []

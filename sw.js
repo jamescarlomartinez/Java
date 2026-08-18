@@ -1,30 +1,3 @@
-importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
-
-firebase.initializeApp({
-  apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
-  authDomain: 'pickleball-rotation.firebaseapp.com',
-  projectId: 'pickleball-rotation',
-  storageBucket: 'pickleball-rotation.firebasestorage.app',
-  messagingSenderId: '103026729080',
-  appId: '1:103026729080:web:e4087895e44f190efa0d8d'
-});
-
-var backgroundMessaging = firebase.messaging();
-
-backgroundMessaging.onBackgroundMessage(function(payload) {
-  var data = payload.data || {};
-  return self.registration.showNotification(data.title || 'Your pickleball game is ready!', {
-    body: data.body || 'Open the live rotation for your court assignment.',
-    icon: './icon-192.png',
-    badge: './icon-192.png',
-    tag: data.tag || data.deliveryId || 'pickleball-turn',
-    renotify: false,
-    vibrate: [180, 90, 180],
-    data: { url: data.url || './', deliveryId: data.deliveryId || '' }
-  });
-});
-
 const CACHE = 'pickleball-v20-skill-courts-alerts-help';
 const ASSETS = [
   './',

@@ -41,13 +41,10 @@ var deferredPrompt = null;
 var organizerGrantId = null;
 var appUpdateInProgress = false;
 var appServiceWorkerRegistration = null;
-var fbMessaging = null;
-var messagingSupported = false;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var FCM_VAPID_KEY = '';
-var ROLE_HELP_VERSION = 'v1';
+var ROLE_HELP_VERSION = 'v2';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -70,7 +67,7 @@ var ROLE_HELP = {
     copy: 'Use this access type to manage only your own player entry.',
     steps: [
       'Choose your roster name, or add yourself, then select Beginner or Intermediate & Above.',
-      'Tap Enable Alerts if you want a phone notification when you are assigned to a court.',
+      'Tap Enable Alerts for a free device alert while this app is open or running in the background. A fully closed app cannot receive free alerts.',
       'Use Take a Break when sitting out and I’m Ready when you want to return.',
       'Use My Skill to update your level; it affects future assignments only.',
       'Court badges show who each court is for. Standings and live games update automatically.',
@@ -240,130 +237,97 @@ function showTurnAlert(assignment, deliveryKey) {
   if (navigator.vibrate) navigator.vibrate([180, 90, 180]);
 }
 
+function showSystemTurnNotification(assignment, deliveryKey) {
+  if (!assignment || !localStorage.getItem(alertsStorageKey())) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return;
+  var title = 'You’re up on Court ' + assignment.courtNum + '!';
+  var body = 'Partner: ' + assignment.partner + ' · vs ' + assignment.opponents.join(' & ');
+  var registrationPromise = appServiceWorkerRegistration
+    ? Promise.resolve(appServiceWorkerRegistration)
+    : navigator.serviceWorker.ready;
+  registrationPromise.then(function (registration) {
+    appServiceWorkerRegistration = registration;
+    return registration.showNotification(title, {
+      body: body,
+      icon: './icon-192.png',
+      badge: './icon-192.png',
+      tag: deliveryKey || 'pickleball-turn',
+      renotify: false,
+      vibrate: [180, 90, 180],
+      data: { url: sharedRoomUrl('player'), deliveryId: deliveryKey || '' }
+    });
+  }).catch(function (error) { console.warn('Could not show turn notification:', error); });
+}
+
 function detectNewPlayerAssignment(beforeState, nextState, revision) {
   if (accessMode !== 'player' || !linkedPlayerId || !initialRoomSnapshotSeen) return;
   var before = findPlayerAssignment(beforeState, linkedPlayerId);
   var after = findPlayerAssignment(nextState, linkedPlayerId);
   if (!after) return;
   if (before && before.courtNum === after.courtNum && before.gameNum === after.gameNum) return;
-  showTurnAlert(after, [roomId, revision, after.courtNum, after.gameNum, linkedPlayerId].join('_'));
+  var deliveryKey = [roomId, revision, after.courtNum, after.gameNum, linkedPlayerId].join('_');
+  showTurnAlert(after, deliveryKey);
+  showSystemTurnNotification(after, deliveryKey);
 }
 
-function pushSubscriptionRef() {
-  return currentUser && roomId ? fbDb.collection('pushSubscriptions').doc(roomId + '_' + currentUser.uid) : null;
-}
-
-function removePushSubscription() {
-  var ref = pushSubscriptionRef();
+function disablePlayerAlerts() {
   localStorage.removeItem(alertsStorageKey());
-  alertStatus = messagingSupported && Notification.permission !== 'denied' ? 'available' : alertStatus;
+  if ('Notification' in window && 'serviceWorker' in navigator) {
+    alertStatus = Notification.permission === 'denied' ? 'blocked' : 'available';
+  }
   renderSessionCard();
-  return ref ? ref.delete().catch(function () {}) : Promise.resolve();
-}
-
-function savePushSubscription(token) {
-  var ref = pushSubscriptionRef();
-  if (!ref || !linkedPlayerId) return Promise.reject(new Error('Player check-in is not ready.'));
-  return ref.get().then(function (snapshot) {
-    var data = {
-      roomId: roomId,
-      uid: currentUser.uid,
-      playerId: linkedPlayerId,
-      token: token,
-      enabled: true,
-      updatedAt: FieldValue.serverTimestamp(),
-      expiresAt: eventExpiry()
-    };
-    if (!snapshot.exists) data.createdAt = FieldValue.serverTimestamp();
-    return ref.set(data, { merge: true });
-  });
-}
-
-function requestMessagingToken(requestPermission) {
-  if (!roomId || accessMode !== 'player' || !linkedPlayerId || !window.firebase.messaging) return Promise.resolve(null);
-  return Promise.resolve(firebase.messaging.isSupported()).then(function (supported) {
-    messagingSupported = !!supported;
-    if (!supported || !('Notification' in window) || !('serviceWorker' in navigator)) {
-      alertStatus = 'unavailable';
-      return null;
-    }
-    if (Notification.permission === 'denied') {
-      alertStatus = 'blocked';
-      return null;
-    }
-    if (requestPermission && Notification.permission === 'default') return Notification.requestPermission();
-    return Notification.permission;
-  }).then(function (permission) {
-    if (!messagingSupported || permission !== 'granted') {
-      if (permission === 'denied') alertStatus = 'blocked';
-      else if (messagingSupported) alertStatus = 'available';
-      return null;
-    }
-    return navigator.serviceWorker.ready.then(function (registration) {
-      appServiceWorkerRegistration = registration;
-      if (!fbMessaging) {
-        fbMessaging = firebase.messaging();
-        fbMessaging.onMessage(function (payload) {
-          var data = payload.data || {};
-          showTurnAlert({
-            courtNum: data.courtNum,
-            gameNum: data.gameNum,
-            partner: data.partner || 'See live game',
-            opponents: data.opponents ? data.opponents.split('|') : []
-          }, data.deliveryId || data.tag || 'foreground-' + Date.now());
-        });
-      }
-      var options = { serviceWorkerRegistration: registration };
-      if (FCM_VAPID_KEY) options.vapidKey = FCM_VAPID_KEY;
-      return fbMessaging.getToken(options);
-    });
-  }).then(function (token) {
-    if (!token) return null;
-    return savePushSubscription(token).then(function () {
-      localStorage.setItem(alertsStorageKey(), '1');
-      alertStatus = 'on';
-      renderSessionCard();
-      return token;
-    });
-  });
+  return Promise.resolve();
 }
 
 function enablePlayerAlerts() {
-  if (alertStatus === 'on') { showToast('Phone alerts are enabled for this game.'); return; }
+  if (alertStatus === 'on') { showToast('Free alerts are on while this app remains open or running.'); return; }
   if (alertStatus === 'blocked') {
     showToast('Notifications are blocked. Allow them in your browser or phone settings.'); return;
   }
   if (alertStatus === 'unavailable') {
-    showToast(/iPhone|iPad|iPod/.test(navigator.userAgent) ? 'On iPhone, install this app on your Home Screen, then enable alerts there.' : 'Push alerts are unavailable on this browser. Keep the page open for in-app alerts.');
+    showToast(/iPhone|iPad|iPod/.test(navigator.userAgent) ? 'On iPhone, install and open this app from your Home Screen to use free alerts.' : 'Device alerts are unavailable here. Keep the page open for the in-app alert.');
+    return;
+  }
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    alertStatus = 'unavailable';
+    renderSessionCard();
     return;
   }
   alertStatus = 'enabling';
   renderSessionCard();
-  requestMessagingToken(true).then(function (token) {
-    if (token) showToast('Alerts enabled. We’ll notify you when you’re up.');
-    else if (alertStatus === 'available') showToast('Alerts were not enabled. In-app alerts still work while this page is open.');
+  var permissionPromise = Notification.permission === 'default'
+    ? Notification.requestPermission()
+    : Promise.resolve(Notification.permission);
+  permissionPromise.then(function (permission) {
+    if (permission === 'granted') {
+      localStorage.setItem(alertsStorageKey(), '1');
+      alertStatus = 'on';
+      showToast('Free alerts enabled. Keep the app open or running in the background.');
+    } else {
+      localStorage.removeItem(alertsStorageKey());
+      alertStatus = permission === 'denied' ? 'blocked' : 'available';
+      showToast('Alerts were not enabled. In-app alerts still work while this page is open.');
+    }
+    renderSessionCard();
   }).catch(function (error) {
     console.warn('Could not enable alerts:', error);
     alertStatus = Notification.permission === 'denied' ? 'blocked' : 'unavailable';
     renderSessionCard();
-    showToast('Could not enable phone alerts. In-app alerts still work while this page is open.');
+    showToast('Could not enable device alerts. In-app alerts still work while this page is open.');
   });
 }
 
 function refreshPlayerAlerts() {
   if (accessMode !== 'player') return;
-  if (localStorage.getItem(alertsStorageKey())) {
-    requestMessagingToken(false).catch(function (error) { console.warn('Could not refresh alerts:', error); });
-    return;
-  }
-  if (!window.firebase.messaging || !('Notification' in window) || !('serviceWorker' in navigator)) {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
     alertStatus = 'unavailable'; renderSessionCard(); return;
   }
-  Promise.resolve(firebase.messaging.isSupported()).then(function (supported) {
-    messagingSupported = !!supported;
-    alertStatus = !supported ? 'unavailable' : Notification.permission === 'denied' ? 'blocked' : 'available';
-    renderSessionCard();
-  });
+  alertStatus = Notification.permission === 'denied'
+    ? 'blocked'
+    : Notification.permission === 'granted' && localStorage.getItem(alertsStorageKey())
+      ? 'on'
+      : 'available';
+  renderSessionCard();
 }
 
 function currentHelpRole() {
@@ -1383,7 +1347,7 @@ function renderAccessQr(mode) {
   document.getElementById('accessLinkLabel').textContent = accessLabel(mode) + ' link';
   document.getElementById('accessLinkUrl').textContent = url;
   var summaries = {
-    player: 'Players can add or choose their own name, select a level, check in, take a break, edit their level, and enable turn alerts.',
+    player: 'Players can add or choose their own name, select a level, check in, take a break, edit their level, and enable free turn alerts while the app is running.',
     viewer: 'Viewers can follow courts, standings, history, and activity, but cannot change the game.',
     controller: 'Controllers can manage players, court designations, rotations, winners, replacements, and team swaps.'
   };
@@ -1427,7 +1391,7 @@ function openAccessLinks() {
 
 function leaveSharedRoom() {
   if (roomData && roomData.status !== 'active') {
-    if (accessMode === 'player') removePushSubscription().then(navigateHome);
+    if (accessMode === 'player') disablePlayerAlerts().then(navigateHome);
     else navigateHome();
     return;
   }
@@ -1441,11 +1405,11 @@ function leaveSharedRoom() {
       }, { selfService: true, undoable: false }).then(function (result) {
         if (!result) return;
         localStorage.removeItem(playerStorageKey());
-        return removePushSubscription().then(navigateHome);
+        return disablePlayerAlerts().then(navigateHome);
       });
       return;
     }
-    removePushSubscription().then(navigateHome);
+    disablePlayerAlerts().then(navigateHome);
     return;
   }
   navigateHome();
@@ -1577,7 +1541,8 @@ function renderSessionCard() {
     + '<div class="session-actions">' + actions
     + '<button class="btn btn-ghost" onclick="openRoleHelp()">❓ How to Use</button>'
     + '<button class="btn btn-ghost" onclick="leaveSharedRoom()">Leave</button>'
-    + '</div>';
+    + '</div>'
+    + (accessMode === 'player' && !isOrganizer ? '<div class="free-alert-note">Free alerts work while this app is open or running in the background. A fully closed app cannot receive alerts.</div>' : '');
 }
 
 function renderPlayerList() {

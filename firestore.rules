@@ -23,32 +23,6 @@ service cloud.firestore {
         && get(roomPath(roomId)).data.hostUid == request.auth.uid;
     }
 
-    function validOwnPlayerSubscription(subscriptionId, data) {
-      return signedIn()
-        && data.keys().hasAll([
-          'roomId', 'uid', 'playerId', 'token', 'enabled',
-          'createdAt', 'updatedAt', 'expiresAt'
-        ])
-        && data.keys().hasOnly([
-          'roomId', 'uid', 'playerId', 'token', 'enabled',
-          'createdAt', 'updatedAt', 'expiresAt'
-        ])
-        && data.uid == request.auth.uid
-        && subscriptionId == data.roomId + '_' + request.auth.uid
-        && data.roomId is string
-        && data.playerId is string
-        && data.token is string && data.token.size() > 20 && data.token.size() <= 4096
-        && data.enabled is bool
-        && data.createdAt is timestamp
-        && data.updatedAt is timestamp
-        && data.expiresAt is timestamp
-        && exists(roomPath(data.roomId))
-        && get(roomPath(data.roomId)).data.status == 'active'
-        && exists(memberPath(data.roomId, request.auth.uid))
-        && get(memberPath(data.roomId, request.auth.uid)).data.role == 'player'
-        && get(memberPath(data.roomId, request.auth.uid)).data.playerId == data.playerId;
-    }
-
     function validRoomShape(data) {
       return data.keys().hasAll([
           'schemaVersion', 'name', 'hostUid', 'hostName', 'hostEmail',
@@ -174,22 +148,5 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    match /pushSubscriptions/{subscriptionId} {
-      allow get: if signedIn() && resource.data.uid == request.auth.uid
-        && subscriptionId == resource.data.roomId + '_' + request.auth.uid;
-      allow list: if false;
-      allow create: if validOwnPlayerSubscription(subscriptionId, request.resource.data);
-      allow update: if validOwnPlayerSubscription(subscriptionId, request.resource.data)
-        && request.resource.data.roomId == resource.data.roomId
-        && request.resource.data.uid == resource.data.uid
-        && request.resource.data.playerId == resource.data.playerId
-        && request.resource.data.createdAt == resource.data.createdAt;
-      allow delete: if signedIn() && resource.data.uid == request.auth.uid
-        && subscriptionId == resource.data.roomId + '_' + request.auth.uid;
-    }
-
-    match /pushDeliveries/{deliveryId} {
-      allow read, write: if false;
-    }
   }
 }

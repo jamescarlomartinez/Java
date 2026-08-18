@@ -122,13 +122,15 @@ test('each shared role has context help and QR access summaries', () => {
   assert.match(html, /\.help-steps/);
 });
 
-test('player alerts use explicit permission, private subscriptions, and foreground alerts', () => {
-  assert.match(html, /firebase-messaging-compat\.js/);
+test('player alerts use explicit permission and free local system notifications', () => {
+  assert.doesNotMatch(html, /firebase-messaging-compat\.js/);
   assert.match(html, /id="turnAlert"/);
   assert.match(app, /function enablePlayerAlerts/);
   assert.match(app, /Notification\.requestPermission\(\)/);
-  assert.match(app, /pushSubscriptions/);
-  assert.match(app, /fbMessaging\.onMessage/);
-  assert.match(serviceWorker, /onBackgroundMessage/);
+  assert.match(app, /registration\.showNotification/);
+  assert.match(app, /localStorage\.setItem\(alertsStorageKey\(\), '1'\)/);
+  assert.match(app, /fully closed app cannot receive/);
+  assert.doesNotMatch(app, /pushSubscriptions|fbMessaging|FCM_VAPID_KEY/);
+  assert.doesNotMatch(serviceWorker, /firebase-messaging|onBackgroundMessage/);
   assert.match(serviceWorker, /notificationclick/);
 });
