@@ -106,6 +106,84 @@ test('anonymous players and viewers can register their requested room role', { s
   }
 });
 
+test('controllers and organizers can keep their role while linking a player ID', { skip: !emulatorAvailable }, async () => {
+  const controllerDb = env.authenticatedContext('controller-player', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+  await assertSucceeds(setDoc(doc(controllerDb, 'roomMembers/room-secret_controller-player'), {
+    roomId: 'room-secret', uid: 'controller-player', displayName: 'Controller James',
+    role: 'controller', playerId: 'p-controller',
+    joinedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+  }));
+
+  const hostDb = env.authenticatedContext('host-1', { email: 'host@example.com' }).firestore();
+  await assertSucceeds(updateDoc(doc(hostDb, 'roomMembers/room-secret_host-1'), {
+    role: 'organizer', playerId: 'p-host', expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+  }));
+
+  const strangerDb = env.authenticatedContext('stranger-controller').firestore();
+  await assertFails(updateDoc(doc(strangerDb, 'roomMembers/room-secret_controller-player'), {
+    playerId: 'p-stolen'
+  }));
+});
+
+test('controller player state, membership, and event update atomically', { skip: !emulatorAvailable }, async () => {
+  const uid = 'atomic-controller-player';
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'rooms/room-controller-player'), room({
+      name: 'Controller player room',
+      state: {
+        schemaVersion: 6,
+        players: [{
+          id: 'p-existing', name: 'James Player', games: 2, wins: 1, notAvailable: true,
+          skillRating: 2, skillLevelConfirmed: true, checkedIn: false, checkedInUid: null,
+          checkedInName: null, lastAssignedRound: -1
+        }]
+      },
+      lastEventId: 'controller-player-seed'
+    }));
+    await setDoc(doc(db, `roomMembers/room-controller-player_${uid}`), {
+      roomId: 'room-controller-player', uid, displayName: 'Controller James', role: 'controller', playerId: null,
+      joinedAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+  });
+
+  const db = env.authenticatedContext(uid, { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+  const roomRef = doc(db, 'rooms/room-controller-player');
+  const memberRef = doc(db, `roomMembers/room-controller-player_${uid}`);
+  const eventRef = doc(db, 'roomEvents/controller-player-linked');
+  await assertSucceeds(runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(roomRef);
+    const data = snapshot.data();
+    const beforeState = data.state;
+    const nextState = JSON.parse(JSON.stringify(beforeState));
+    Object.assign(nextState.players[0], {
+      notAvailable: false, checkedIn: true, checkedInUid: uid, checkedInName: 'Controller James'
+    });
+    const nextRevision = data.revision + 1;
+    transaction.update(roomRef, {
+      state: nextState, revision: nextRevision, lastEventId: eventRef.id,
+      undoStack: data.undoStack || [], updatedAt: serverTimestamp()
+    });
+    transaction.update(memberRef, {
+      displayName: 'Controller James', role: 'controller', playerId: 'p-existing',
+      expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+    transaction.set(eventRef, {
+      roomId: 'room-controller-player', revision: nextRevision, type: 'controller_player_linked',
+      summary: 'Joined the rotation as James Player', actorUid: uid, actorName: 'Controller James',
+      beforeState, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+  }));
+
+  const membership = (await getDoc(memberRef)).data();
+  const updatedRoom = (await getDoc(roomRef)).data();
+  assert.equal(membership.role, 'controller');
+  assert.equal(membership.playerId, 'p-existing');
+  assert.equal(updatedRoom.state.players[0].checkedInUid, uid);
+  assert.equal(updatedRoom.state.players[0].games, 2);
+  assert.equal(updatedRoom.state.players[0].wins, 1);
+});
+
 test('a player-link guest can atomically add and claim their own roster entry', { skip: !emulatorAvailable }, async () => {
   await env.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'rooms/room-self-enroll'), room({

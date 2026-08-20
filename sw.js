@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v20-skill-courts-alerts-help';
+const CACHE = 'pickleball-v21-controller-participation';
 const ASSETS = [
   './',
   './index.html',

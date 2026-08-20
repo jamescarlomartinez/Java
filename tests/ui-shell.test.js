@@ -88,13 +88,29 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v20-skill-courts-alerts-help/);
+  assert.match(serviceWorker, /pickleball-v21-controller-participation/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
   assert.match(serviceWorker, /clients\.matchAll/);
   assert.match(serviceWorker, /client\.navigate/);
   assert.match(app, /updateViaCache:\s*'none'/);
+});
+
+test('controllers choose and safely manage player participation', () => {
+  assert.match(app, /Controller Only/);
+  assert.match(app, /Existing Player/);
+  assert.match(app, /New Player/);
+  assert.match(app, /function ensureControllerParticipation/);
+  assert.match(app, /function commitControllerParticipation/);
+  assert.match(app, /Engine\.changeOwnedPlayer/);
+  assert.match(app, /membershipPlayerId/);
+  assert.match(app, /Playing as/);
+  assert.match(app, /Player Tools/);
+  assert.match(app, /Change Player/);
+  assert.match(app, /Stop Playing/);
+  assert.match(html, /\.participation-picker\s*\{[^}]*grid-template-columns:\s*1fr/);
+  assert.match(html, /\.participation-option\s*\{[^}]*min-height:\s*72px/);
 });
 
 test('Firebase Hosting publishes only the explicit app bundle', () => {

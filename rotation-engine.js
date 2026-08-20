@@ -379,6 +379,56 @@
     return { changed: true, player: player };
   }
 
+  function changeOwnedPlayer(state, currentPlayerId, selection, uid, displayName) {
+    selection = selection || { kind: 'controller_only', playerId: null };
+    var targetPlayerId = selection.kind === 'controller_only' ? null : selection.playerId;
+    var outgoing = currentPlayerId ? playerById(state, currentPlayerId) : null;
+    if (currentPlayerId && (!outgoing || !outgoing.checkedIn || outgoing.checkedInUid !== uid)) {
+      return { changed: false, reason: 'Your current player identity is no longer available.' };
+    }
+    if (outgoing && currentPlayerId !== targetPlayerId && lockedIds(state).indexOf(currentPlayerId) !== -1) {
+      return { changed: false, reason: outgoing.name + ' must finish the active game before changing player.' };
+    }
+    var unexpectedOwnedPlayer = state.players.find(function (player) {
+      return player.checkedIn && player.checkedInUid === uid && player.id !== currentPlayerId;
+    });
+    if (unexpectedOwnedPlayer) {
+      return { changed: false, reason: 'This device is already checked in as ' + unexpectedOwnedPlayer.name + '.' };
+    }
+
+    if (selection.kind === 'new') {
+      var newName = String(selection.name || '').trim().slice(0, 50);
+      if (!newName) return { changed: false, reason: 'Enter your player name.' };
+      if (!normalizeSkillLevel(selection.skillRating)) return { changed: false, reason: 'Choose a skill level before joining.' };
+      if (state.players.some(function (player) { return player.name.toLowerCase() === newName.toLowerCase(); })) {
+        return { changed: false, reason: 'That name is already in the player list.' };
+      }
+      if (playerById(state, selection.playerId)) return { changed: false, reason: 'Could not create a unique player entry.' };
+    } else if (targetPlayerId) {
+      var target = playerById(state, targetPlayerId);
+      if (!target) return { changed: false, reason: 'That player is no longer in the session.' };
+      if (target.checkedInUid && target.checkedInUid !== uid) {
+        return { changed: false, reason: target.name + ' is already checked in on another device.' };
+      }
+      if (!normalizeSkillLevel(selection.skillRating)) return { changed: false, reason: 'Choose a valid skill level.' };
+    }
+
+    if (outgoing && currentPlayerId !== targetPlayerId) {
+      var checkedOut = checkOutPlayer(state, currentPlayerId, uid);
+      if (!checkedOut.changed) return checkedOut;
+    }
+    if (!targetPlayerId) {
+      if (!outgoing) return { changed: false, reason: 'You are already set as Controller Only.' };
+      return { changed: true, outgoing: outgoing, incoming: null };
+    }
+
+    var joined = selection.kind === 'new'
+      ? enrollPlayer(state, selection.name, uid, displayName, selection.playerId, selection.skillRating)
+      : checkInPlayer(state, targetPlayerId, uid, displayName, selection.skillRating);
+    if (!joined.changed) return joined;
+    return { changed: true, outgoing: outgoing, incoming: joined.player, player: joined.player };
+  }
+
   function pairKey(a, b) {
     return a < b ? a + '|' + b : b + '|' + a;
   }
@@ -596,6 +646,7 @@
     setSelfSkillRating: setSelfSkillRating,
     setSelfAvailability: setSelfAvailability,
     checkOutPlayer: checkOutPlayer,
+    changeOwnedPlayer: changeOwnedPlayer,
     pairKey: pairKey,
     chooseAssignment: chooseAssignment,
     assignGame: assignGame,

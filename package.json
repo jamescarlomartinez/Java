@@ -1,6 +1,6 @@
 {
   "name": "pickleball-live-rotation",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "private": true,
   "scripts": {
     "test": "node --test tests/rotation-engine.test.js tests/ui-shell.test.js",
