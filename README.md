@@ -7,6 +7,7 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 - The organizer signs in with an email present in the `allowedEmails` Firestore collection.
 - **Share Current Game** copies the device's `pickleballRotation_v2`, v3, or v4 state into a new unguessable `?room=...` URL.
 - Controller link holders join with Firebase Anonymous Authentication, enter a display name, and may use normal rotation controls. Player links let guests choose an existing roster name or add and check in their own name and skill level; viewer links need no name entry.
+- Every organizer and controller chooses **Controller Only**, **Existing Player**, or **New Player**. Controller-player identities keep full controls, retain a separate activity-log name, and use one compact Player Tools menu for availability, skill, alerts, switching, and checkout.
 - **QR & Links** provides three entry paths:
   - `?room=<id>` opens normal controller mode.
   - `?room=<id>&mode=player` lets a player choose an existing roster name or enroll themselves, check in, take a break, return, or check out.

@@ -374,6 +374,7 @@
     .sync-badge.offline, .sync-badge.error { color: #ff9a9a; background: rgba(230,57,70,.13); }
     .sync-badge.ended { color: #b8b8d8; background: rgba(160,160,204,.12); }
     .room-identity { color: var(--text-dim); font-size: .76rem; margin-top: 8px; }
+    .room-player-identity { margin-top: 5px; color: #a7f3d0; font-size: .76rem; line-height: 1.4; }
 
     /* ── ACTIVITY ── */
     .activity-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 9px 0; border-bottom: 1px solid rgba(42,90,62,.3); }
@@ -387,6 +388,7 @@
     .modal-overlay.visible { display: flex; }
     .modal-card { width: 100%; max-width: 560px; max-height: min(88dvh, 760px); overflow: hidden; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: 0 18px 60px rgba(0,0,0,.55); }
     .modal-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
+    .modal-header .btn { min-width: 44px; min-height: 44px; padding: 8px; }
     .modal-title { color: #fff; font-size: 1.05rem; font-weight: 900; }
     .modal-copy { color: var(--text-muted); font-size: .82rem; line-height: 1.45; margin-bottom: 14px; }
     #modalBody { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--primary) transparent; padding-right: 3px; }
@@ -400,6 +402,10 @@
     .picker-option:active { filter: brightness(1.2); }
     .picker-option:disabled { opacity: .45; cursor: not-allowed; }
     .picker-option.is-selected { border-color: var(--accent); color: var(--accent); }
+    .participation-picker { display: grid; grid-template-columns: 1fr; gap: 9px; }
+    .participation-option { min-height: 72px; display: grid; align-content: center; gap: 4px; touch-action: manipulation; }
+    .participation-option strong { color: var(--accent); font-size: .92rem; }
+    .participation-option small { color: var(--text-muted); font-size: .73rem; line-height: 1.35; font-weight: 600; }
     .self-enroll-divider { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: .72rem; margin: 12px 0; text-transform: uppercase; letter-spacing: .8px; }
     .self-enroll-divider::before, .self-enroll-divider::after { content: ''; height: 1px; flex: 1; background: var(--border); }
     .self-enroll-option { display: grid; gap: 4px; border-style: dashed; border-color: var(--primary-light); background: rgba(52,211,153,.06); }
@@ -408,6 +414,10 @@
     .identity-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; }
     .identity-summary span { color: var(--text-muted); font-size: .74rem; }
     .identity-summary strong { color: var(--accent); overflow-wrap: anywhere; text-align: right; }
+    .player-tool-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 7px; margin: 9px 0 12px; color: var(--text-muted); font-size: .74rem; font-weight: 700; }
+    .player-tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .player-tools-grid .btn { width: 100%; min-width: 0; min-height: 48px; white-space: normal; line-height: 1.2; }
+    .player-tools-grid .btn-danger { grid-column: 1 / -1; }
     .skill-question { min-width: 0; border: 0; padding: 0; margin: 16px 0 0; }
     .skill-question legend { color: var(--text); font-size: .8rem; font-weight: 800; padding: 0; }
     .field-help { color: var(--text-muted); font-size: .72rem; line-height: 1.4; margin: 5px 0 9px; }
@@ -479,6 +489,8 @@
       .team-box { padding: 9px; }
       .teams-row { gap: 5px; }
       .vs-col { padding-inline: 1px; }
+      .player-tools-grid { grid-template-columns: 1fr; }
+      .player-tools-grid .btn-danger { grid-column: auto; }
     }
     #signOutWrap { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
     .btn-signout { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; padding: 0; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); color: rgba(255,255,255,.45); border-radius: 8px; cursor: pointer; transition: all .15s; }

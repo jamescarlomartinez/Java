@@ -1,7 +1,7 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
-var APP_VERSION = '3.4.0';
+var APP_VERSION = '3.5.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -22,6 +22,7 @@ var accessMode = roomId ? (requestedMode === 'player' ? 'player' : requestedMode
 var linkedPlayerId = null;
 var pendingPlayerEnrollment = null;
 var pendingPlayerSkillRating = null;
+var pendingControllerSelection = null;
 var roomRef = null;
 var roomData = null;
 var currentUser = null;
@@ -44,7 +45,7 @@ var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v2';
+var ROLE_HELP_VERSION = 'v3';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -88,6 +89,8 @@ var ROLE_HELP = {
     title: 'Controller · How to Use',
     copy: 'Use this access type to operate the shared rotation.',
     steps: [
+      'Choose Controller Only, Existing Player, or New Player when joining. You keep full controller controls in every option.',
+      'If you are playing, open Player Tools to take a break, edit your skill, enable alerts, change player, or stop playing.',
       'Add players and edit their skill levels in the Players section.',
       'Under Court Settings, designate each court as Any, Beginner, or Intermediate & Above.',
       'Fill available courts or generate one court, then record the winning team.',
@@ -254,13 +257,13 @@ function showSystemTurnNotification(assignment, deliveryKey) {
       tag: deliveryKey || 'pickleball-turn',
       renotify: false,
       vibrate: [180, 90, 180],
-      data: { url: sharedRoomUrl('player'), deliveryId: deliveryKey || '' }
+      data: { url: sharedRoomUrl(isFullController() ? 'controller' : 'player'), deliveryId: deliveryKey || '' }
     });
   }).catch(function (error) { console.warn('Could not show turn notification:', error); });
 }
 
 function detectNewPlayerAssignment(beforeState, nextState, revision) {
-  if (accessMode !== 'player' || !linkedPlayerId || !initialRoomSnapshotSeen) return;
+  if (!linkedPlayerId || !initialRoomSnapshotSeen || (accessMode !== 'player' && !isFullController())) return;
   var before = findPlayerAssignment(beforeState, linkedPlayerId);
   var after = findPlayerAssignment(nextState, linkedPlayerId);
   if (!after) return;
@@ -318,7 +321,7 @@ function enablePlayerAlerts() {
 }
 
 function refreshPlayerAlerts() {
-  if (accessMode !== 'player') return;
+  if (!linkedPlayerId || (accessMode !== 'player' && !isFullController())) return;
   if (!('Notification' in window) || !('serviceWorker' in navigator)) {
     alertStatus = 'unavailable'; renderSessionCard(); return;
   }
@@ -482,6 +485,10 @@ function playerStorageKey() {
   return 'pickleballPlayer_' + roomId;
 }
 
+function controllerParticipationStorageKey() {
+  return 'pickleballControllerParticipation_' + roomId;
+}
+
 function isFullController() {
   return !roomId || isOrganizer || accessMode === 'controller';
 }
@@ -534,33 +541,69 @@ function bindSkillRatingQuestion(container, onChange) {
   });
 }
 
-function ensurePlayerIdentity() {
-  S = Engine.normalizeState(roomData.state);
-  pendingPlayerSkillRating = null;
-  var saved = localStorage.getItem(playerStorageKey());
-  var savedPlayer = Engine.playerById(S, saved);
-  var canReuseSavedPlayer = savedPlayer && (!savedPlayer.checkedInUid || savedPlayer.checkedInUid === currentUser.uid);
-  if (savedPlayer && savedPlayer.skillLevelConfirmed && savedPlayer.checkedIn && savedPlayer.checkedInUid === currentUser.uid && !savedPlayer.notAvailable) {
-    linkedPlayerId = savedPlayer.id;
-    controllerName = savedPlayer.name;
-    return Promise.resolve(savedPlayer);
-  }
+function choosePlayerIdentity(options) {
+  options = options || {};
+  var allowControllerOnly = !!options.allowControllerOnly;
+  var closable = options.closable !== false;
+  var currentPlayerId = options.currentPlayerId || null;
+  var settled = false;
+
   return new Promise(function (resolve) {
-    function showPicker() {
-      var options = S.players.map(function (player) {
-        var claimed = player.checkedInUid && player.checkedInUid !== currentUser.uid;
-        return '<button class="picker-option" type="button" data-player-id="' + esc(player.id) + '" ' + (claimed ? 'disabled' : '') + '>'
-          + '<strong>' + esc(player.name) + '</strong>' + (claimed ? ' · already checked in' : '') + '</button>';
-      }).join('');
-      var addMyself = '<button class="picker-option self-enroll-option" id="selfEnrollBtn" type="button"><strong>＋ Add myself to this game</strong><small>Create your own player name and check in</small></button>';
-      var roster = S.players.length
-        ? addMyself + '<div class="self-enroll-divider"><span>or choose a listed name</span></div><div class="picker-list">' + options + '</div>'
-        : '<div class="empty-hint self-enroll-empty">No players are listed yet. Add yourself to start the roster.</div>' + addMyself;
+    function finish(selection) {
+      if (settled) return;
+      settled = true;
+      closeModal();
+      resolve(selection);
+    }
+
+    function cancel() { finish(null); }
+
+    function addCancelAction(modal) {
+      if (!closable) return;
+      var cancelButton = document.createElement('button');
+      cancelButton.className = 'btn btn-ghost';
+      cancelButton.textContent = 'Cancel';
+      cancelButton.onclick = cancel;
+      modal.actions.appendChild(cancelButton);
+    }
+
+    function showParticipationChoices() {
       var modal = openModal({
-        title: 'Who are you?',
-        copy: 'Choose your name, or add yourself if you are not listed.',
+        title: options.title || 'How are you joining?',
+        copy: options.copy || 'Choose whether you are controlling only or also joining the player rotation.',
+        body: '<div class="participation-picker">'
+          + '<button class="picker-option participation-option" type="button" data-participation="controller_only"><strong>🎛 Controller Only</strong><small>Control the rotation without joining as a player</small></button>'
+          + '<button class="picker-option participation-option" type="button" data-participation="existing"><strong>✓ Existing Player</strong><small>Choose and check in a player already on the roster</small></button>'
+          + '<button class="picker-option participation-option" type="button" data-participation="new"><strong>＋ New Player</strong><small>Add your player name and skill level to the roster</small></button>'
+          + '</div>',
+        closable: closable,
+        onClose: cancel
+      });
+      modal.body.querySelector('[data-participation="controller_only"]').onclick = function () { finish({ kind: 'controller_only', playerId: null }); };
+      modal.body.querySelector('[data-participation="existing"]').onclick = showPicker;
+      modal.body.querySelector('[data-participation="new"]').onclick = showEnrollmentForm;
+      addCancelAction(modal);
+    }
+
+    function showPicker() {
+      var rosterOptions = S.players.map(function (player) {
+        var claimed = player.checkedInUid && player.checkedInUid !== currentUser.uid;
+        var current = player.id === currentPlayerId;
+        var disabled = claimed || current;
+        var detail = claimed ? ' · already checked in' : current ? ' · currently selected' : ' · ' + Engine.skillLevelLabel(player.skillRating);
+        return '<button class="picker-option" type="button" data-player-id="' + esc(player.id) + '" ' + (disabled ? 'disabled' : '') + '>'
+          + '<strong>' + esc(player.name) + '</strong>' + esc(detail) + '</button>';
+      }).join('');
+      var addMyself = allowControllerOnly ? '' : '<button class="picker-option self-enroll-option" id="selfEnrollBtn" type="button"><strong>＋ Add myself to this game</strong><small>Create your own player name and check in</small></button>';
+      var roster = S.players.length
+        ? addMyself + (addMyself ? '<div class="self-enroll-divider"><span>or choose a listed name</span></div>' : '') + '<div class="picker-list">' + rosterOptions + '</div>'
+        : '<div class="empty-hint self-enroll-empty">No players are listed yet.</div>' + addMyself;
+      var modal = openModal({
+        title: allowControllerOnly ? 'Choose an existing player' : 'Who are you?',
+        copy: allowControllerOnly ? 'Claim an available roster entry. Your controller name remains separate.' : 'Choose your name, or add yourself if you are not listed.',
         body: roster,
-        closable: false
+        closable: closable,
+        onClose: cancel
       });
       modal.body.querySelectorAll('[data-player-id]').forEach(function (button) {
         button.onclick = function () {
@@ -568,17 +611,15 @@ function ensurePlayerIdentity() {
           if (player) showExistingPlayerForm(player);
         };
       });
-      document.getElementById('selfEnrollBtn').onclick = showEnrollmentForm;
-    }
-
-    function finishIdentity(player, skillRating, enrollment) {
-      pendingPlayerEnrollment = enrollment || null;
-      pendingPlayerSkillRating = skillRating;
-      linkedPlayerId = player.id;
-      controllerName = player.name;
-      localStorage.setItem(playerStorageKey(), linkedPlayerId);
-      closeModal();
-      resolve(player);
+      var selfEnroll = document.getElementById('selfEnrollBtn');
+      if (selfEnroll) selfEnroll.onclick = showEnrollmentForm;
+      if (allowControllerOnly || closable) {
+        var back = document.createElement('button');
+        back.className = 'btn btn-ghost';
+        back.textContent = allowControllerOnly ? '← Back' : 'Cancel';
+        back.onclick = allowControllerOnly ? showParticipationChoices : cancel;
+        modal.actions.appendChild(back);
+      }
     }
 
     function showExistingPlayerForm(player) {
@@ -586,11 +627,12 @@ function ensurePlayerIdentity() {
       var modal = openModal({
         title: 'Check in as ' + player.name,
         copy: player.skillLevelConfirmed
-          ? 'Confirm your name and skill level before joining the rotation.'
+          ? 'Confirm the player and skill level before joining the rotation.'
           : 'Choose one of the two current skill levels before joining the rotation.',
         body: '<div class="identity-summary"><span>Player name</span><strong>' + esc(player.name) + '</strong></div>'
           + skillRatingQuestion(selectedRating),
-        closable: false
+        closable: closable,
+        onClose: cancel
       });
       var join;
       bindSkillRatingQuestion(modal.body, function (rating) { selectedRating = rating; if (join) join.disabled = false; });
@@ -602,7 +644,9 @@ function ensurePlayerIdentity() {
       join.className = 'btn btn-primary';
       join.textContent = player.skillLevelConfirmed ? 'Check In' : 'Confirm & Check In';
       join.disabled = !selectedRating;
-      join.onclick = function () { if (selectedRating) finishIdentity(player, selectedRating, null); };
+      join.onclick = function () {
+        if (selectedRating) finish({ kind: 'existing', playerId: player.id, player: player, skillRating: selectedRating });
+      };
       modal.actions.appendChild(back);
       modal.actions.appendChild(join);
     }
@@ -610,13 +654,14 @@ function ensurePlayerIdentity() {
     function showEnrollmentForm() {
       var selectedRating = null;
       var modal = openModal({
-        title: 'Add yourself',
-        copy: 'Enter the name and skill level everyone will see in the rotation.',
+        title: allowControllerOnly ? 'Join as a new player' : 'Add yourself',
+        copy: 'Enter the player name and skill level everyone will see in the rotation.',
         body: '<label class="modal-label" for="selfEnrollName">Your player name</label>'
           + '<input class="modal-field" id="selfEnrollName" maxlength="50" autocomplete="name" placeholder="Enter your name">'
           + skillRatingQuestion(selectedRating)
           + '<div class="modal-inline-error" id="selfEnrollError" role="alert"></div>',
-        closable: false
+        closable: closable,
+        onClose: cancel
       });
       var join;
       bindSkillRatingQuestion(modal.body, function (rating) {
@@ -624,11 +669,12 @@ function ensurePlayerIdentity() {
         if (join) join.disabled = false;
       });
       var input = document.getElementById('selfEnrollName');
+      input.value = options.prefillName || '';
       var error = document.getElementById('selfEnrollError');
       var back = document.createElement('button');
       back.className = 'btn btn-ghost';
       back.textContent = '← Back';
-      back.onclick = showPicker;
+      back.onclick = allowControllerOnly ? showParticipationChoices : showPicker;
       join = document.createElement('button');
       join.className = 'btn btn-primary';
       join.textContent = 'Add & Check In';
@@ -646,18 +692,78 @@ function ensurePlayerIdentity() {
           return;
         }
         var enrollment = { id: Engine.makeId('p'), name: name, skillRating: selectedRating };
-        finishIdentity(enrollment, selectedRating, enrollment);
+        finish({ kind: 'new', playerId: enrollment.id, player: enrollment, enrollment: enrollment, skillRating: selectedRating });
       }
       join.onclick = submit;
       input.oninput = function () { error.textContent = ''; };
       input.onkeydown = function (event) { if (event.key === 'Enter') { event.preventDefault(); submit(); } };
       modal.actions.appendChild(back);
       modal.actions.appendChild(join);
-      setTimeout(function () { input.focus(); }, 30);
+      setTimeout(function () { input.focus(); input.select(); }, 30);
     }
 
-    if (canReuseSavedPlayer) showExistingPlayerForm(savedPlayer);
+    if (allowControllerOnly) showParticipationChoices();
     else showPicker();
+  });
+}
+
+function ensurePlayerIdentity() {
+  S = Engine.normalizeState(roomData.state);
+  pendingPlayerSkillRating = null;
+  var savedPlayer = Engine.playerById(S, localStorage.getItem(playerStorageKey()));
+  if (savedPlayer && savedPlayer.skillLevelConfirmed && savedPlayer.checkedIn && savedPlayer.checkedInUid === currentUser.uid && !savedPlayer.notAvailable) {
+    linkedPlayerId = savedPlayer.id;
+    controllerName = savedPlayer.name;
+    return Promise.resolve(savedPlayer);
+  }
+  return choosePlayerIdentity({ allowControllerOnly: false, closable: false }).then(function (selection) {
+    pendingPlayerEnrollment = selection.enrollment || null;
+    pendingPlayerSkillRating = selection.skillRating;
+    linkedPlayerId = selection.playerId;
+    controllerName = selection.player.name;
+    localStorage.setItem(playerStorageKey(), linkedPlayerId);
+    return selection.player;
+  });
+}
+
+function rememberControllerParticipation(kind, playerId) {
+  localStorage.setItem(controllerParticipationStorageKey(), kind === 'controller_only' ? 'controller_only' : 'player');
+  if (playerId) localStorage.setItem(playerStorageKey(), playerId);
+  else localStorage.removeItem(playerStorageKey());
+}
+
+function ensureControllerParticipation() {
+  if (!roomData || roomData.status !== 'active') return Promise.resolve(null);
+  var memberRef = fbDb.collection('roomMembers').doc(roomId + '_' + currentUser.uid);
+  return memberRef.get().catch(function () { return null; }).then(function (snapshot) {
+    var membership = snapshot && snapshot.exists ? snapshot.data() : null;
+    var candidateIds = [membership && membership.playerId, localStorage.getItem(playerStorageKey())];
+    var ownedPlayer = S.players.find(function (player) { return player.checkedIn && player.checkedInUid === currentUser.uid; });
+    if (ownedPlayer) candidateIds.unshift(ownedPlayer.id);
+    var restored = null;
+    candidateIds.some(function (candidateId) {
+      var player = Engine.playerById(S, candidateId);
+      if (player && player.checkedIn && player.checkedInUid === currentUser.uid) { restored = player; return true; }
+      return false;
+    });
+    if (restored) {
+      linkedPlayerId = restored.id;
+      rememberControllerParticipation('player', restored.id);
+      return restored;
+    }
+    if (localStorage.getItem(controllerParticipationStorageKey()) === 'controller_only') {
+      linkedPlayerId = null;
+      return null;
+    }
+    return choosePlayerIdentity({
+      allowControllerOnly: true,
+      closable: false,
+      prefillName: controllerName
+    }).then(function (selection) {
+      pendingControllerSelection = selection;
+      if (selection.kind === 'controller_only') rememberControllerParticipation('controller_only', null);
+      return selection;
+    });
   });
 }
 
@@ -680,6 +786,123 @@ function enrollLinkedPlayer() {
     }
     return result;
   });
+}
+
+function commitControllerParticipation(selection) {
+  if (!isFullController() || !currentUser || !selection) return Promise.resolve(null);
+  var previousPlayerId = linkedPlayerId;
+  var targetPlayerId = selection.kind === 'controller_only' ? null : selection.playerId;
+  if (!previousPlayerId && !targetPlayerId) {
+    pendingControllerSelection = null;
+    linkedPlayerId = null;
+    rememberControllerParticipation('controller_only', null);
+    renderSessionCard();
+    return Promise.resolve({ changed: true, controllerOnly: true });
+  }
+  var previousPlayer = previousPlayerId ? Engine.playerById(S, previousPlayerId) : null;
+  var eventType = !targetPlayerId
+    ? 'controller_player_unlinked'
+    : selection.kind === 'new'
+      ? 'controller_player_enrolled'
+      : previousPlayerId ? 'controller_player_switched' : 'controller_player_linked';
+
+  return runAction(eventType, function (state) {
+    var engineSelection = selection.kind === 'new'
+      ? { kind: 'new', playerId: selection.enrollment.id, name: selection.enrollment.name, skillRating: selection.skillRating }
+      : { kind: selection.kind, playerId: targetPlayerId, skillRating: selection.skillRating };
+    var changed = Engine.changeOwnedPlayer(state, previousPlayerId, engineSelection, currentUser.uid, controllerName);
+    if (!changed.changed) return changed;
+    if (!targetPlayerId) {
+      return {
+        changed: true,
+        player: changed.outgoing,
+        message: 'You are now Controller Only.',
+        summary: 'Stopped playing as ' + changed.outgoing.name + ' and remained a controller'
+      };
+    }
+    return {
+      changed: true,
+      player: changed.incoming,
+      message: 'Playing as ' + changed.incoming.name + ' while keeping controller access.',
+      summary: previousPlayer
+        ? 'Changed playing identity from ' + previousPlayer.name + ' to ' + changed.incoming.name
+        : (selection.kind === 'new' ? 'Added and joined as ' : 'Joined the rotation as ') + changed.incoming.name
+    };
+  }, { undoable: false, membershipPlayerId: targetPlayerId }).then(function (result) {
+    if (!result) return null;
+    pendingControllerSelection = null;
+    linkedPlayerId = targetPlayerId;
+    rememberControllerParticipation(targetPlayerId ? 'player' : 'controller_only', targetPlayerId);
+    if (targetPlayerId) refreshPlayerAlerts();
+    else {
+      localStorage.removeItem(alertsStorageKey());
+      alertStatus = ('Notification' in window && Notification.permission === 'denied') ? 'blocked' : 'available';
+    }
+    renderSessionCard();
+    return result;
+  });
+}
+
+function openControllerParticipationPicker() {
+  if (!isFullController() || !roomData || roomData.status !== 'active') return;
+  if (linkedPlayerId && Engine.lockedIds(S).indexOf(linkedPlayerId) !== -1) {
+    showToast('Finish your active game before changing your player identity.');
+    return;
+  }
+  choosePlayerIdentity({
+    allowControllerOnly: true,
+    closable: true,
+    currentPlayerId: linkedPlayerId,
+    prefillName: controllerName,
+    title: linkedPlayerId ? 'Change controller participation' : 'Join the player rotation'
+  }).then(function (selection) {
+    if (selection) commitControllerParticipation(selection);
+  });
+}
+
+function stopControllerPlaying() {
+  var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
+  if (!player) return;
+  if (Engine.lockedIds(S).indexOf(player.id) !== -1) {
+    showToast('Finish your active game before switching to Controller Only.');
+    return;
+  }
+  if (!confirm('Stop playing as ' + player.name + ' and remain Controller Only?')) return;
+  commitControllerParticipation({ kind: 'controller_only', playerId: null });
+}
+
+function openControllerPlayerTools() {
+  if (!isFullController()) return;
+  var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
+  if (!player) { openControllerParticipationPicker(); return; }
+  var onCourt = Engine.lockedIds(S).indexOf(player.id) !== -1;
+  var status = onCourt ? 'On court' : player.notAvailable ? 'Taking a break' : 'Ready to play';
+  var disabled = sharedBusy || !navigator.onLine || !roomData || roomData.status !== 'active';
+  var modal = openModal({
+    title: 'Player Tools · ' + player.name,
+    copy: 'Your controller identity remains ' + controllerName + '. These tools affect only your linked player.',
+    body: '<div class="identity-summary"><span>Playing as</span><strong>' + esc(player.name) + '</strong></div>'
+      + '<div class="player-tool-summary"><span>⭐ ' + esc(Engine.skillLevelLabel(player.skillRating)) + '</span><span>' + esc(status) + '</span></div>'
+      + '<div class="player-tools-grid">'
+      + '<button class="btn ' + (player.notAvailable ? 'btn-primary' : 'btn-accent') + '" id="controllerAvailabilityBtn" ' + (disabled || onCourt ? 'disabled' : '') + '>' + (player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
+      + '<button class="btn btn-ghost" id="controllerSkillBtn" ' + (disabled ? 'disabled' : '') + '>⭐ Edit My Skill</button>'
+      + '<button class="btn btn-ghost alert-status-' + esc(alertStatus) + '" id="controllerAlertsBtn" ' + (alertStatus === 'enabling' ? 'disabled' : '') + '>' + esc(alertButtonCopy()) + '</button>'
+      + '<button class="btn btn-ghost" id="controllerChangePlayerBtn" ' + (disabled || onCourt ? 'disabled' : '') + '>⇄ Change Player</button>'
+      + '<button class="btn btn-danger" id="controllerStopPlayingBtn" ' + (disabled || onCourt ? 'disabled' : '') + '>Stop Playing</button>'
+      + '</div>'
+      + (onCourt ? '<div class="field-help">Finish the active game before taking a break, changing player, stopping, or leaving.</div>' : '')
+      + '<div class="free-alert-note">Free alerts require this app to remain open or running. A fully closed app cannot receive alerts.</div>'
+  });
+  document.getElementById('controllerAvailabilityBtn').onclick = function () { closeModal(); toggleMyAvailability(); };
+  document.getElementById('controllerSkillBtn').onclick = function () { closeModal(); openSkillPicker(player.id); };
+  document.getElementById('controllerAlertsBtn').onclick = function () { closeModal(); enablePlayerAlerts(); };
+  document.getElementById('controllerChangePlayerBtn').onclick = function () { closeModal(); openControllerParticipationPicker(); };
+  document.getElementById('controllerStopPlayingBtn').onclick = function () { closeModal(); stopControllerPlaying(); };
+  var close = document.createElement('button');
+  close.className = 'btn btn-ghost';
+  close.textContent = 'Close';
+  close.onclick = closeModal;
+  modal.actions.appendChild(close);
 }
 
 function initSolo() {
@@ -706,24 +929,37 @@ function initSharedRoom(user) {
     if (isOrganizer) accessMode = 'controller';
     if (isOrganizer) {
       controllerName = currentUser.displayName || currentUser.email || roomData.hostName || 'Organizer';
-      return Promise.resolve();
+      return ensureControllerParticipation();
     }
     if (accessMode === 'viewer') {
       controllerName = 'Viewer';
       return Promise.resolve();
     }
-    return accessMode === 'player' ? ensurePlayerIdentity() : ensureControllerName(user);
+    if (accessMode === 'player') return ensurePlayerIdentity();
+    return ensureControllerName(user).then(function () { return ensureControllerParticipation(); });
   }).then(function () {
+    var initialPlayerId = pendingControllerSelection ? null : linkedPlayerId;
     return fbDb.collection('roomMembers').doc(roomId + '_' + currentUser.uid).set({
         roomId: roomId,
         uid: currentUser.uid,
         displayName: controllerName,
         role: membershipRole(),
-        playerId: linkedPlayerId,
+        playerId: initialPlayerId,
         joinedAt: FieldValue.serverTimestamp(),
         expiresAt: eventExpiry()
       }, { merge: true });
   }).then(function () {
+    if (accessMode === 'controller' && pendingControllerSelection) {
+      var selection = pendingControllerSelection;
+      if (selection.kind === 'controller_only') {
+        pendingControllerSelection = null;
+        return selection;
+      }
+      return commitControllerParticipation(selection).then(function (result) {
+        if (!result) throw new Error('Your controller player could not be checked in. Refresh and try again.');
+        return result;
+      });
+    }
     if (accessMode !== 'player') return null;
     if (pendingPlayerEnrollment) {
       return enrollLinkedPlayer().then(function (result) {
@@ -767,6 +1003,14 @@ function subscribeToRoom() {
     var nextState = Engine.normalizeState(roomData.state);
     detectNewPlayerAssignment(previousState, nextState, roomData.revision);
     S = nextState;
+    if (linkedPlayerId) {
+      var linkedPlayer = Engine.playerById(S, linkedPlayerId);
+      if (!linkedPlayer || !linkedPlayer.checkedIn || linkedPlayer.checkedInUid !== currentUser.uid) {
+        linkedPlayerId = null;
+        localStorage.removeItem(playerStorageKey());
+        if (isFullController()) localStorage.setItem(controllerParticipationStorageKey(), 'controller_only');
+      }
+    }
     initialRoomSnapshotSeen = true;
     isOrganizer = roomData.hostUid === currentUser.uid;
     if (roomData.status === 'ended') syncStatus = 'ended';
@@ -856,6 +1100,14 @@ function runAction(type, reducer, options) {
         lastEventId: eventRef.id,
         undoStack: stack
       });
+      if (Object.prototype.hasOwnProperty.call(options, 'membershipPlayerId')) {
+        transaction.update(fbDb.collection('roomMembers').doc(roomId + '_' + currentUser.uid), {
+          displayName: controllerName,
+          role: membershipRole(),
+          playerId: options.membershipPlayerId,
+          expiresAt: eventExpiry()
+        });
+      }
       transaction.set(eventRef, {
         roomId: roomId,
         revision: nextRevision,
@@ -1181,7 +1433,7 @@ function toggleMyAvailability() {
 }
 
 function openSkillPicker(playerId) {
-  var isSelfEdit = accessMode === 'player' && !isOrganizer && linkedPlayerId === playerId && !!currentUser;
+  var isSelfEdit = linkedPlayerId === playerId && !!currentUser && (accessMode === 'player' || isFullController());
   if (!isFullController() && !isSelfEdit) return;
   var player = Engine.playerById(S, playerId);
   if (!player) return;
@@ -1349,7 +1601,7 @@ function renderAccessQr(mode) {
   var summaries = {
     player: 'Players can add or choose their own name, select a level, check in, take a break, edit their level, and enable free turn alerts while the app is running.',
     viewer: 'Viewers can follow courts, standings, history, and activity, but cannot change the game.',
-    controller: 'Controllers can manage players, court designations, rotations, winners, replacements, and team swaps.'
+    controller: 'Controllers choose Controller Only, Existing Player, or New Player, then keep full controls for players, courts, rotations, winners, replacements, and team swaps.'
   };
   document.getElementById('accessRoleSummary').textContent = summaries[mode];
   document.getElementById('accessCopyBtn').onclick = function () { copyShareLink(mode); };
@@ -1368,7 +1620,7 @@ function openAccessLinks() {
   if (!roomId || !isFullController()) return;
   var modal = openModal({
     title: 'QR codes & access links',
-    copy: 'Choose what the link opens. Controller links keep full game controls; player and view-only links show simplified screens.',
+    copy: 'Choose what the link opens. Controller links keep full game controls and let each controller decide whether they are also playing.',
     body: '<div class="access-tabs">'
       + '<button class="access-tab" type="button" data-access-mode="player">✓ Player Check-In</button>'
       + '<button class="access-tab" type="button" data-access-mode="viewer">👁 View Only</button>'
@@ -1391,13 +1643,20 @@ function openAccessLinks() {
 
 function leaveSharedRoom() {
   if (roomData && roomData.status !== 'active') {
-    if (accessMode === 'player') disablePlayerAlerts().then(navigateHome);
+    if (linkedPlayerId) disablePlayerAlerts().then(navigateHome);
     else navigateHome();
     return;
   }
-  if (accessMode === 'player' && linkedPlayerId && currentUser) {
+  if (linkedPlayerId && currentUser) {
     var player = Engine.playerById(S, linkedPlayerId);
     if (player && player.checkedIn && player.checkedInUid === currentUser.uid) {
+      if (isFullController()) {
+        commitControllerParticipation({ kind: 'controller_only', playerId: null }).then(function (result) {
+          if (!result) return;
+          return disablePlayerAlerts().then(navigateHome);
+        });
+        return;
+      }
       runAction('player_checked_out', function (state) {
         var result = Engine.checkOutPlayer(state, linkedPlayerId, currentUser.uid);
         if (!result.changed) return result;
@@ -1409,6 +1668,7 @@ function leaveSharedRoom() {
       });
       return;
     }
+    localStorage.removeItem(playerStorageKey());
     disablePlayerAlerts().then(navigateHome);
     return;
   }
@@ -1521,7 +1781,9 @@ function renderSessionCard() {
   var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
   var actions = '';
   if (isFullController()) {
-    actions = '<button class="btn btn-primary" onclick="openAccessLinks()">▦ QR & Links</button>'
+    actions = '<button class="btn ' + (player ? 'btn-accent' : 'btn-ghost') + '" onclick="openControllerPlayerTools()" ' + (sessionDisabled ? 'disabled' : '') + '>'
+      + (player ? '🎾 Player Tools · ' + esc(player.name) : '🎾 Join as Player') + '</button>'
+      + '<button class="btn btn-primary" onclick="openAccessLinks()">▦ QR & Links</button>'
       + '<button class="btn btn-ghost" onclick="shareRoomLink(\'controller\')">↗ Share Controller</button>'
       + (isOrganizer ? '<button class="btn btn-ghost" onclick="undoLastAction()" ' + (undoDisabled ? 'disabled' : '') + '>↶ Undo</button>' : '')
       + (isOrganizer && roomData && roomData.status === 'active' ? '<button class="btn btn-danger" onclick="endSharedRoom()">End Session</button>' : '');
@@ -1538,6 +1800,9 @@ function renderSessionCard() {
     + '<div class="session-sub">Live shared rotation · ' + esc(roleText) + '</div></div>'
     + '<span class="sync-badge ' + esc(syncStatus) + '">' + esc(statusText) + '</span></div>'
     + '<div class="room-identity">' + (accessMode === 'player' ? 'Checked in as ' : accessMode === 'viewer' ? 'Watching as ' : 'Controlling as ') + '<strong>' + esc(controllerName || 'Guest') + '</strong></div>'
+    + (isFullController() ? '<div class="room-player-identity">' + (player
+      ? '🎾 Playing as <strong>' + esc(player.name) + '</strong> · ' + esc(Engine.skillLevelLabel(player.skillRating)) + (player.notAvailable ? ' · Taking a break' : '')
+      : '🎛 Controller Only') + '</div>' : '')
     + '<div class="session-actions">' + actions
     + '<button class="btn btn-ghost" onclick="openRoleHelp()">❓ How to Use</button>'
     + '<button class="btn btn-ghost" onclick="leaveSharedRoom()">Leave</button>'
@@ -1882,7 +2147,7 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(function (registration) {
       appServiceWorkerRegistration = registration;
       registration.update().catch(function () {});
-      if (appInitialised && roomId && accessMode === 'player') refreshPlayerAlerts();
+      if (appInitialised && roomId && linkedPlayerId && (accessMode === 'player' || isFullController())) refreshPlayerAlerts();
     }).catch(function (error) { console.warn('Service worker failed:', error); });
   });
 }

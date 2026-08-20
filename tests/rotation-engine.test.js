@@ -143,6 +143,87 @@ test('a QR guest can add and claim their own unique player name', () => {
   assert.equal(Engine.enrollPlayer(state, 'Cara', 'uid-ben', 'Ben phone').changed, false);
 });
 
+test('a controller can atomically switch from one owned existing player to another', () => {
+  const state = stateWithPlayers(['Amy', 'Ben'], 1);
+  Engine.checkInPlayer(state, 'p0', 'controller-uid', 'James', 1);
+  state.players[0].games = 4;
+  state.players[0].wins = 2;
+
+  const changed = Engine.changeOwnedPlayer(state, 'p0', {
+    kind: 'existing', playerId: 'p1', skillRating: 2
+  }, 'controller-uid', 'James');
+
+  assert.equal(changed.changed, true);
+  assert.equal(changed.outgoing.name, 'Amy');
+  assert.equal(changed.incoming.name, 'Ben');
+  assert.equal(state.players[0].checkedIn, false);
+  assert.equal(state.players[0].notAvailable, true);
+  assert.equal(state.players[0].games, 4);
+  assert.equal(state.players[0].wins, 2);
+  assert.equal(state.players[1].checkedInUid, 'controller-uid');
+  assert.equal(state.players[1].checkedInName, 'James');
+  assert.equal(state.players[1].skillRating, 2);
+});
+
+test('failed controller switching preserves the original player identity', () => {
+  const state = stateWithPlayers(['Amy', 'Ben'], 1);
+  Engine.checkInPlayer(state, 'p0', 'controller-uid', 'James', 1);
+  Engine.checkInPlayer(state, 'p1', 'other-uid', 'Other controller', 2);
+  const before = Engine.clone(state);
+
+  const claimed = Engine.changeOwnedPlayer(state, 'p0', {
+    kind: 'existing', playerId: 'p1', skillRating: 2
+  }, 'controller-uid', 'James');
+
+  assert.equal(claimed.changed, false);
+  assert.match(claimed.reason, /another device/i);
+  assert.deepEqual(state, before);
+});
+
+test('controller switching is blocked on court and new players start with zero statistics', () => {
+  const state = stateWithPlayers(['Amy', 'Ben', 'Cara', 'Dan'], 1);
+  Engine.checkInPlayer(state, 'p0', 'controller-uid', 'James', 1);
+  state.courtStates[0].status = 'playing';
+  state.courtStates[0].teamA = ['p0', 'p1'];
+  state.courtStates[0].teamB = ['p2', 'p3'];
+
+  const blocked = Engine.changeOwnedPlayer(state, 'p0', {
+    kind: 'new', playerId: 'p-new', name: 'James Player', skillRating: 2
+  }, 'controller-uid', 'James');
+  assert.equal(blocked.changed, false);
+  assert.match(blocked.reason, /finish the active game/i);
+  assert.equal(state.players.length, 4);
+  assert.equal(state.players[0].checkedInUid, 'controller-uid');
+
+  state.courtStates[0].status = 'empty';
+  state.courtStates[0].teamA = [];
+  state.courtStates[0].teamB = [];
+  const enrolled = Engine.changeOwnedPlayer(state, 'p0', {
+    kind: 'new', playerId: 'p-new', name: 'James Player', skillRating: 2
+  }, 'controller-uid', 'James');
+  assert.equal(enrolled.changed, true);
+  assert.equal(enrolled.incoming.games, 0);
+  assert.equal(enrolled.incoming.wins, 0);
+  assert.equal(enrolled.incoming.checkedInUid, 'controller-uid');
+});
+
+test('controller only unlinks the owned player without changing statistics', () => {
+  const state = stateWithPlayers(['Amy'], 1);
+  Engine.checkInPlayer(state, 'p0', 'controller-uid', 'James', 1);
+  state.players[0].games = 3;
+  state.players[0].wins = 1;
+
+  const unlinked = Engine.changeOwnedPlayer(state, 'p0', {
+    kind: 'controller_only', playerId: null
+  }, 'controller-uid', 'James');
+
+  assert.equal(unlinked.changed, true);
+  assert.equal(state.players[0].checkedIn, false);
+  assert.equal(state.players[0].notAvailable, true);
+  assert.equal(state.players[0].games, 3);
+  assert.equal(state.players[0].wins, 1);
+});
+
 test('a checked-in player cannot take a break or leave while assigned to a court', () => {
   const state = stateWithPlayers(['Amy', 'Ben', 'Cara', 'Dan'], 1);
   Engine.checkInPlayer(state, 'p0', 'uid-amy', 'Amy');
