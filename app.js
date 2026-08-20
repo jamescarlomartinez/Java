@@ -1,7 +1,7 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
-var APP_VERSION = '3.6.0';
+var APP_VERSION = '3.7.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -45,7 +45,7 @@ var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v3';
+var ROLE_HELP_VERSION = 'v4';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -72,6 +72,8 @@ var ROLE_HELP = {
       'Use Take a Break when sitting out and I’m Ready when you want to return.',
       'Use My Skill to update your level; it affects future assignments only.',
       'Court badges show who each court is for. Standings and live games update automatically.',
+      'Up Next shows staged games. When the controller starts yours, the court timer begins.',
+      'Open Session Summary & Export to review or download the session results.',
       'Tap Leave to check out. You cannot check out while you are in an active game.'
     ]
   },
@@ -82,6 +84,7 @@ var ROLE_HELP = {
       'Follow each live court and its Beginner, Intermediate & Above, or Any level badge.',
       'Check Player Standings for games, wins, and win percentage.',
       'Open Game History for completed games and Live Activity for recent controller actions.',
+      'Up Next lineups, court timers, custom court names, and the session summary are visible live.',
       'The page updates automatically. Game controls are intentionally unavailable in View Only mode.'
     ]
   },
@@ -92,10 +95,12 @@ var ROLE_HELP = {
       'Choose Controller Only, Existing Player, or New Player when joining. You keep full controller controls in every option.',
       'If you are playing, open Player Tools to take a break, edit your skill, enable alerts, change player, or stop playing.',
       'Add players and edit their skill levels in the Players section.',
-      'Under Court Settings, designate each court as Any, Beginner, or Intermediate & Above.',
-      'Fill available courts or generate one court, then record the winning team.',
+      'Under Court Settings, name each court and designate it as Any, Beginner, or Intermediate & Above.',
+      'Stage fair games for all available courts, or use Build Manually to choose the four players and teams.',
+      'Review the Up Next lineup, tap Start Game to begin its timer, then record the winning team.',
       'Use Replace for a waiting eligible player and ⇄ to swap teams on the same court.',
       'Use QR & Links to share Player Check-In, View Only, or Controller access.',
+      'Open Session Summary & Export for totals, durations, standings, and a CSV download.',
       'Organizer only: Undo, Reset, Clear All, Reset Stats, and End Session.'
     ]
   }
@@ -209,14 +214,16 @@ function findPlayerAssignment(state, playerId) {
   if (!state || !playerId) return null;
   for (var courtIndex = 0; courtIndex < state.courtStates.length; courtIndex += 1) {
     var court = state.courtStates[courtIndex];
-    if (court.status !== 'playing') continue;
+    if (court.status !== 'staged' && court.status !== 'playing') continue;
     var team = court.teamA.indexOf(playerId) !== -1 ? 'A' : court.teamB.indexOf(playerId) !== -1 ? 'B' : null;
     if (!team) continue;
     var ownTeam = team === 'A' ? court.teamA : court.teamB;
     var otherTeam = team === 'A' ? court.teamB : court.teamA;
     return {
       courtNum: court.courtNum,
-      gameNum: court.gameNum,
+      courtName: Engine.courtDisplayName(court),
+      gameNum: court.status === 'staged' ? (court.gameNum || 0) + 1 : court.gameNum,
+      status: court.status,
       partner: Engine.playerName(state, ownTeam.find(function (id) { return id !== playerId; })),
       opponents: otherTeam.map(function (id) { return Engine.playerName(state, id); })
     };
@@ -234,7 +241,9 @@ function showTurnAlert(assignment, deliveryKey) {
   if (deliveryKey) lastTurnAlertKey = deliveryKey;
   var alert = document.getElementById('turnAlert');
   if (!alert) return;
-  alert.querySelector('.turn-alert-title').textContent = 'You’re up on Court ' + assignment.courtNum + '!';
+  alert.querySelector('.turn-alert-title').textContent = assignment.status === 'staged'
+    ? 'You’re up next on ' + assignment.courtName + '!'
+    : 'You’re up on ' + assignment.courtName + '!';
   alert.querySelector('.turn-alert-copy').textContent = 'Partner: ' + assignment.partner + ' · vs ' + assignment.opponents.join(' & ');
   alert.classList.add('visible');
   if (navigator.vibrate) navigator.vibrate([180, 90, 180]);
@@ -243,7 +252,9 @@ function showTurnAlert(assignment, deliveryKey) {
 function showSystemTurnNotification(assignment, deliveryKey) {
   if (!assignment || !localStorage.getItem(alertsStorageKey())) return;
   if (!('Notification' in window) || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return;
-  var title = 'You’re up on Court ' + assignment.courtNum + '!';
+  var title = assignment.status === 'staged'
+    ? 'You’re up next on ' + assignment.courtName + '!'
+    : 'You’re up on ' + assignment.courtName + '!';
   var body = 'Partner: ' + assignment.partner + ' · vs ' + assignment.opponents.join(' & ');
   var registrationPromise = appServiceWorkerRegistration
     ? Promise.resolve(appServiceWorkerRegistration)
@@ -1225,12 +1236,37 @@ function toggleNotAvailable(index) {
 function setCourts(count) {
   count = Number(count);
   if (count === S.courts) return;
-  if (count < S.courts && S.courtStates.slice(count).some(function (court) { return court.status === 'playing'; })) {
-    if (!confirm('Reducing courts will end games on removed courts. Continue?')) return;
+  if (count < S.courts && S.courtStates.slice(count).some(function (court) { return court.status === 'playing' || court.status === 'staged'; })) {
+    if (!confirm('Reducing courts will remove active or staged games on those courts. Continue?')) return;
   }
   runAction('courts_changed', function (state) {
     Engine.initCourtStates(state, count);
     return { changed: true, message: 'Now using ' + count + ' court' + (count === 1 ? '' : 's') + '.', summary: 'Changed court count to ' + count };
+  });
+}
+
+function renameCourt(index) {
+  var court = S.courtStates[index];
+  if (!court) return;
+  askText({
+    title: 'Name ' + Engine.courtDisplayName(court),
+    copy: 'Use a short name players can recognize, such as Main Court or Court A.',
+    value: Engine.courtDisplayName(court),
+    maxLength: 30,
+    confirmLabel: 'Save Name'
+  }).then(function (name) {
+    if (!name || name === Engine.courtDisplayName(court)) return;
+    runAction('court_renamed', function (state) {
+      var target = state.courtStates[index];
+      if (!target) return { changed: false, reason: 'Court not found.' };
+      var previous = Engine.courtDisplayName(target);
+      target.name = String(name).trim().slice(0, 30);
+      return {
+        changed: true,
+        message: previous + ' renamed to ' + target.name + '.',
+        summary: 'Renamed ' + previous + ' to ' + target.name
+      };
+    });
   });
 }
 
@@ -1245,44 +1281,136 @@ function setCourtSkillGroup(index, group) {
     var label = Engine.skillGroupLabel(group);
     return {
       changed: true,
-      message: 'Court ' + target.courtNum + ' is now for ' + label + '.',
-      summary: 'Designated Court ' + target.courtNum + ' for ' + label
+      message: Engine.courtDisplayName(target) + ' is now for ' + label + '.',
+      summary: 'Designated ' + Engine.courtDisplayName(target) + ' for ' + label
     };
   });
 }
 
 function generateForCourt(index) {
-  runAction('game_started', function (state) {
-    var result = Engine.assignGame(state, index);
+  runAction('game_staged', function (state) {
+    var result = Engine.stageGame(state, index);
     if (!result.changed) return result;
     var names = result.court.teamA.concat(result.court.teamB).map(function (id) { return Engine.playerName(state, id); });
     return {
       changed: true,
-      message: 'Court ' + result.court.courtNum + ' — Game ' + result.court.gameNum + ' started!',
-      summary: 'Started Court ' + result.court.courtNum + ': ' + names.join(', ')
+      message: Engine.courtDisplayName(result.court) + ' — Game ' + ((result.court.gameNum || 0) + 1) + ' is up next.',
+      summary: 'Staged ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
     };
   });
 }
 
 function fillAvailableCourts() {
-  runAction('courts_filled', function (state) {
+  runAction('games_staged', function (state) {
     var filled = [];
     var skipped = [];
     Engine.courtFillOrder(state).forEach(function (index) {
       var court = state.courtStates[index];
-      if (court.status !== 'playing') {
-        var result = Engine.assignGame(state, index);
-        if (result.changed) filled.push(result.court.courtNum);
+      if (court.status !== 'playing' && court.status !== 'staged') {
+        var result = Engine.stageGame(state, index);
+        if (result.changed) filled.push(Engine.courtDisplayName(result.court));
         else skipped.push(result.reason);
       }
     });
-    if (!filled.length) return { changed: false, reason: skipped[0] || 'All courts are active.' };
+    if (!filled.length) return { changed: false, reason: skipped[0] || 'All courts already have active or staged games.' };
     return {
       changed: true,
-      message: 'Started ' + filled.length + ' fair game' + (filled.length === 1 ? '' : 's') + '!',
-      summary: 'Filled courts ' + filled.join(', ')
+      message: 'Staged ' + filled.length + ' fair game' + (filled.length === 1 ? '' : 's') + '.',
+      summary: 'Staged games for ' + filled.join(', ')
     };
   });
+}
+
+function startStagedGame(index) {
+  runAction('game_started', function (state) {
+    var result = Engine.startStagedGame(state, index);
+    if (!result.changed) return result;
+    var names = result.court.teamA.concat(result.court.teamB).map(function (id) { return Engine.playerName(state, id); });
+    return {
+      changed: true,
+      message: Engine.courtDisplayName(result.court) + ' — Game ' + result.court.gameNum + ' started!',
+      summary: 'Started ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
+    };
+  });
+}
+
+function cancelStagedGame(index) {
+  var court = S.courtStates[index];
+  if (!court || court.status !== 'staged') return;
+  if (!confirm('Remove the staged lineup from ' + Engine.courtDisplayName(court) + '?')) return;
+  runAction('game_stage_cancelled', function (state) {
+    var targetName = Engine.courtDisplayName(state.courtStates[index]);
+    var result = Engine.clearStagedGame(state, index);
+    if (!result.changed) return result;
+    return { changed: true, message: targetName + ' lineup removed.', summary: 'Removed staged game from ' + targetName };
+  });
+}
+
+function openManualMatchBuilder(index) {
+  var court = S.courtStates[index];
+  if (!court || court.status === 'playing') { showToast('Finish the active game before building another match.'); return; }
+  var eligibleIds = Engine.eligibleIdsForManualCourt(S, index);
+  if (eligibleIds.length < 4) {
+    showToast(Engine.courtDisplayName(court) + ' needs four available eligible players.');
+    return;
+  }
+  var players = eligibleIds.map(function (id) { return Engine.playerById(S, id); }).filter(Boolean).sort(function (a, b) {
+    return a.games - b.games || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  });
+  var current = court.status === 'staged' ? court.teamA.concat(court.teamB) : ['', '', '', ''];
+  var optionHtml = '<option value="">Choose player…</option>' + players.map(function (player) {
+    return '<option value="' + esc(player.id) + '">' + esc(player.name) + ' · ' + esc(Engine.skillLevelLabel(player.skillRating)) + ' · ' + player.games + 'G</option>';
+  }).join('');
+  function slot(team, label, slotIndex) {
+    return '<label class="manual-slot"><span>' + label + '</span><select class="modal-field manual-player-select" aria-label="' + team + ' ' + label + '" data-slot="' + slotIndex + '">' + optionHtml + '</select></label>';
+  }
+  var modal = openModal({
+    title: 'Build Match · ' + Engine.courtDisplayName(court),
+    copy: 'Choose four different available players. The lineup is staged first; game credits and the timer begin only when you tap Start Game.',
+    body: '<div class="manual-builder"><div class="manual-team"><strong>🟢 Team A</strong>' + slot('Team A', 'Player 1', 0) + slot('Team A', 'Player 2', 1)
+      + '</div><div class="manual-vs">VS</div><div class="manual-team"><strong>🔵 Team B</strong>' + slot('Team B', 'Player 1', 2) + slot('Team B', 'Player 2', 3)
+      + '</div></div><div class="manual-builder-note" id="manualBuilderNote">Choose four different players.</div>'
+  });
+  var selects = Array.prototype.slice.call(modal.body.querySelectorAll('.manual-player-select'));
+  selects.forEach(function (select, slotIndex) { select.value = current[slotIndex] || ''; });
+  var cancel = document.createElement('button');
+  cancel.className = 'btn btn-ghost';
+  cancel.textContent = 'Cancel';
+  cancel.onclick = closeModal;
+  var stage = document.createElement('button');
+  stage.className = 'btn btn-primary';
+  stage.textContent = court.status === 'staged' ? 'Update Staged Game' : 'Stage Match';
+  function selection() { return selects.map(function (select) { return select.value; }); }
+  function validate() {
+    var chosen = selection();
+    var valid = chosen.every(Boolean) && new Set(chosen).size === 4;
+    stage.disabled = !valid;
+    document.getElementById('manualBuilderNote').textContent = valid
+      ? 'Ready to stage. No game credit is added yet.'
+      : chosen.every(Boolean) ? 'Each player can be selected only once.' : 'Choose four different players.';
+  }
+  selects.forEach(function (select) { select.addEventListener('change', validate); });
+  validate();
+  stage.onclick = function () {
+    var chosen = selection();
+    if (stage.disabled) return;
+    stage.disabled = true;
+    runAction('manual_game_staged', function (state) {
+      var result = Engine.stageManualGame(state, index, chosen.slice(0, 2), chosen.slice(2, 4));
+      if (!result.changed) return result;
+      var names = chosen.map(function (id) { return Engine.playerName(state, id); });
+      return {
+        changed: true,
+        message: Engine.courtDisplayName(result.court) + ' manual lineup is up next.',
+        summary: 'Manually staged ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
+      };
+    }).then(function (result) {
+      if (result && result.changed) closeModal();
+      else stage.disabled = false;
+    });
+  };
+  modal.actions.appendChild(cancel);
+  modal.actions.appendChild(stage);
 }
 
 function recordWinner(index, winner) {
@@ -1292,8 +1420,8 @@ function recordWinner(index, winner) {
     var names = result.winners.map(function (id) { return Engine.playerName(state, id); });
     return {
       changed: true,
-      message: 'Court ' + result.court.courtNum + ' — ' + names.join(' & ') + ' won! 🏆',
-      summary: 'Recorded ' + names.join(' & ') + ' as winners on Court ' + result.court.courtNum
+      message: Engine.courtDisplayName(result.court) + ' — ' + names.join(' & ') + ' won! 🏆',
+      summary: 'Recorded ' + names.join(' & ') + ' as winners on ' + Engine.courtDisplayName(result.court)
     };
   });
 }
@@ -1765,6 +1893,110 @@ function endSharedRoom() {
 function toggleHistory() { historyOpen = !historyOpen; renderHistorySection(); }
 function toggleActivity() { activityOpen = !activityOpen; renderActivitySection(); }
 
+function formatDuration(milliseconds) {
+  var totalSeconds = Math.max(0, Math.floor((Number(milliseconds) || 0) / 1000));
+  var hours = Math.floor(totalSeconds / 3600);
+  var minutes = Math.floor((totalSeconds % 3600) / 60);
+  var seconds = totalSeconds % 60;
+  return hours ? hours + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0')
+    : String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+}
+
+function updateCourtTimers() {
+  document.querySelectorAll('[data-court-timer]').forEach(function (element) {
+    var startedAt = Number(element.dataset.startedAt);
+    element.textContent = startedAt ? formatDuration(Date.now() - startedAt) : '—';
+  });
+}
+
+function sessionDisplayName() {
+  return roomData && roomData.name ? roomData.name : 'Personal Pickleball Game';
+}
+
+function sessionSummaryData() {
+  var timedGames = S.history.filter(function (entry) { return entry.durationMs != null && Number.isFinite(Number(entry.durationMs)); });
+  var totalDuration = timedGames.reduce(function (sum, entry) { return sum + Number(entry.durationMs); }, 0);
+  return {
+    completedGames: S.history.length,
+    timedGames: timedGames.length,
+    averageDuration: timedGames.length ? totalDuration / timedGames.length : null,
+    longestDuration: timedGames.length ? Math.max.apply(null, timedGames.map(function (entry) { return Number(entry.durationMs); })) : null,
+    players: Engine.rankedPlayers(S),
+    courts: S.courtStates.map(function (court) {
+      return {
+        name: Engine.courtDisplayName(court),
+        games: S.history.filter(function (entry) { return Number(entry.courtNum) === Number(court.courtNum); }).length
+      };
+    })
+  };
+}
+
+function openSessionSummary() {
+  var summary = sessionSummaryData();
+  var metric = function (label, value) {
+    return '<div class="summary-metric"><strong>' + esc(value) + '</strong><span>' + esc(label) + '</span></div>';
+  };
+  var courtRows = summary.courts.map(function (court) {
+    return '<div class="summary-court-row"><span>' + esc(court.name) + '</span><strong>' + court.games + ' completed</strong></div>';
+  }).join('');
+  var standings = summary.players.map(function (player, index) {
+    var winPercent = player.games ? Math.round(player.wins / player.games * 100) + '%' : '—';
+    return '<tr><td>' + (index + 1) + '</td><td>' + esc(player.name) + '</td><td>' + player.games + '</td><td>' + player.wins + '</td><td>' + winPercent + '</td></tr>';
+  }).join('') || '<tr><td colspan="5">No players yet.</td></tr>';
+  var modal = openModal({
+    title: 'Session Summary',
+    copy: sessionDisplayName() + ' · Based on the recorded game history on this session.',
+    body: '<div class="summary-metrics">' + metric('Players', S.players.length) + metric('Completed games', summary.completedGames)
+      + metric('Average game', summary.averageDuration == null ? '—' : formatDuration(summary.averageDuration))
+      + metric('Longest game', summary.longestDuration == null ? '—' : formatDuration(summary.longestDuration)) + '</div>'
+      + '<div class="summary-section"><h3>Courts</h3><div class="summary-courts">' + courtRows + '</div></div>'
+      + '<div class="summary-section"><h3>Player standings</h3><div class="summary-table-wrap"><table class="summary-table"><thead><tr><th>#</th><th>Player</th><th>G</th><th>W</th><th>Win%</th></tr></thead><tbody>' + standings + '</tbody></table></div></div>'
+  });
+  var close = document.createElement('button');
+  close.className = 'btn btn-ghost';
+  close.textContent = 'Close';
+  close.onclick = closeModal;
+  var download = document.createElement('button');
+  download.className = 'btn btn-primary';
+  download.textContent = '⇩ Export CSV';
+  download.onclick = exportSessionCsv;
+  modal.actions.appendChild(close);
+  modal.actions.appendChild(download);
+}
+
+function csvCell(value) {
+  var text = String(value == null ? '' : value);
+  if (/^[=+\-@]/.test(text)) text = "'" + text;
+  return '"' + text.replace(/"/g, '""') + '"';
+}
+
+function exportSessionCsv() {
+  var headers = ['Record Type', 'Session', 'Player', 'Skill Level', 'Games', 'Wins', 'Win %', 'Court', 'Game', 'Started At', 'Ended At', 'Duration Seconds', 'Team A', 'Team B', 'Winner'];
+  var rows = [headers];
+  Engine.rankedPlayers(S).forEach(function (player) {
+    rows.push(['PLAYER', sessionDisplayName(), player.name, Engine.skillLevelLabel(player.skillRating), player.games, player.wins,
+      player.games ? Math.round(player.wins / player.games * 100) : '', '', '', '', '', '', '', '', '']);
+  });
+  S.history.slice().reverse().forEach(function (entry) {
+    var teamA = entry.teamANames || (entry.teamA || []).map(function (id) { return Engine.playerName(S, id); });
+    var teamB = entry.teamBNames || (entry.teamB || []).map(function (id) { return Engine.playerName(S, id); });
+    rows.push(['GAME', sessionDisplayName(), '', '', '', '', '', entry.courtName || ('Court ' + entry.courtNum), entry.gameNum,
+      entry.startedAt ? new Date(entry.startedAt).toISOString() : '', new Date(entry.endedAt || entry.ts || Date.now()).toISOString(),
+      entry.durationMs == null ? '' : Math.round(Number(entry.durationMs) / 1000), teamA.join(' & '), teamB.join(' & '), entry.winner === 'A' ? 'Team A' : 'Team B']);
+  });
+  var csv = rows.map(function (row) { return row.map(csvCell).join(','); }).join('\r\n');
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var link = document.createElement('a');
+  var safeName = sessionDisplayName().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pickleball-session';
+  link.href = URL.createObjectURL(blob);
+  link.download = safeName + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+  showToast('Session CSV downloaded.');
+}
+
 function renderSessionCard() {
   var card = document.getElementById('sessionCard');
   if (!roomId) {
@@ -1814,9 +2046,13 @@ function renderPlayerList() {
   var element = document.getElementById('playerList');
   if (!S.players.length) { element.innerHTML = '<div class="empty-hint">No players added yet. Enter names above.</div>'; return; }
   var locked = new Set(Engine.lockedIds(S));
+  var staged = new Set();
+  S.courtStates.forEach(function (court) {
+    if (court.status === 'staged') court.teamA.concat(court.teamB).forEach(function (id) { staged.add(id); });
+  });
   element.innerHTML = S.players.map(function (player, index) {
     var isLocked = locked.has(player.id);
-    var badges = (isLocked ? '<span class="locked-badge">🔒 On Court</span>' : player.notAvailable ? '<span class="na-tag">⛔ Not Available</span>' : '')
+    var badges = (isLocked ? '<span class="locked-badge">' + (staged.has(player.id) ? '⏭ Up Next' : '🔒 On Court') + '</span>' : player.notAvailable ? '<span class="na-tag">⛔ Not Available</span>' : '')
       + (player.checkedIn ? '<span class="checkin-badge">✓ Checked In</span>' : '')
       + (player.id === linkedPlayerId ? '<span class="you-badge">You</span>' : '')
       + (!isLocked && !player.notAvailable && player.wins ? '<span class="wins-badge">🏆 ' + player.wins + 'W</span>' : '')
@@ -1850,15 +2086,15 @@ function renderCourtSkillGroups() {
   var element = document.getElementById('courtSkillGroups');
   if (!element) return;
   var editable = isFullController();
-  element.innerHTML = '<div class="court-groups-heading"><span>Court Skill Designation</span><small>Used for the next generated game</small></div>'
+  element.innerHTML = '<div class="court-groups-heading"><span>Court Names & Skill</span><small>Used for the next staged game</small></div>'
     + S.courtStates.map(function (court, index) {
       var label = Engine.skillGroupLabel(court.skillGroup);
       if (!editable) {
-        return '<div class="court-group-row"><strong>Court ' + court.courtNum + '</strong><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(label) + '</span></div>';
+        return '<div class="court-group-row"><strong>' + esc(Engine.courtDisplayName(court)) + '</strong><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(label) + '</span></div>';
       }
-      return '<label class="court-group-row"><strong>Court ' + court.courtNum + '</strong><select class="court-group-select" aria-label="Court ' + court.courtNum + ' skill designation" onchange="setCourtSkillGroup(' + index + ', this.value)">'
+      return '<div class="court-group-row is-editable"><button class="court-name-button" onclick="renameCourt(' + index + ')" aria-label="Rename ' + esc(Engine.courtDisplayName(court)) + '"><span>' + esc(Engine.courtDisplayName(court)) + '</span><small>✎ Rename</small></button><select class="court-group-select" aria-label="' + esc(Engine.courtDisplayName(court)) + ' skill designation" onchange="setCourtSkillGroup(' + index + ', this.value)">'
         + Engine.SKILL_GROUPS.map(function (group) { return '<option value="' + group + '"' + (court.skillGroup === group ? ' selected' : '') + '>' + esc(Engine.skillGroupLabel(group)) + '</option>'; }).join('')
-        + '</select></label>';
+        + '</select></div>';
     }).join('');
 }
 
@@ -1882,7 +2118,7 @@ function renderAvailableSection() {
   var lockedCount = Engine.lockedIds(S).length;
   var unavailable = S.players.filter(function (player) { return player.notAvailable; });
   var html = '<div class="avail-card"><div class="avail-header">✅ Available (' + available.length + ')';
-  if (lockedCount) html += '<span class="on-court-tag">🔒 On Court: ' + lockedCount + '</span>';
+  if (lockedCount) html += '<span class="on-court-tag">🔒 Assigned: ' + lockedCount + '</span>';
   if (unavailable.length) html += '<span class="na-tag">⛔ Not Available: ' + unavailable.length + '</span>';
   html += '</div>';
   html += available.length ? '<div class="avail-chips">' + available.map(function (player) { return '<div class="avail-chip">' + esc(player.name) + '</div>'; }).join('') + '</div>'
@@ -1893,6 +2129,7 @@ function renderAvailableSection() {
 }
 
 function statusBadgeHtml(status) {
+  if (status === 'staged') return '<span class="status-badge status-staged">⏭ Up Next</span>';
   if (status === 'playing') return '<span class="status-badge status-playing">● In Progress</span>';
   if (status === 'done') return '<span class="status-badge status-done">✓ Done</span>';
   return '<span class="status-badge status-empty">Empty</span>';
@@ -1928,24 +2165,33 @@ function renderCourtCard(court, index) {
   var color = Math.min(court.courtNum, 6);
   var body;
   if (court.status === 'playing') {
-    body = teamsHtml(court, index, false) + '<div class="winner-section"><div class="winner-lbl">⚡ Who won?</div><div class="winner-row">'
+    body = '<div class="court-timer" aria-label="Elapsed game time">⏱ <span data-court-timer data-started-at="' + (court.startedAt || '') + '">' + (court.startedAt ? formatDuration(Date.now() - court.startedAt) : '—') + '</span></div>'
+      + teamsHtml(court, index, false) + '<div class="winner-section"><div class="winner-lbl">⚡ Who won?</div><div class="winner-row">'
       + '<button class="btn-team-a" onclick="recordWinner(' + index + ',\'A\')">🟢 Team A Won</button>'
       + '<button class="btn-team-b" onclick="recordWinner(' + index + ',\'B\')">🔵 Team B Won</button></div></div>';
+  } else if (court.status === 'staged') {
+    body = '<div class="staged-callout"><strong>Game ' + ((court.gameNum || 0) + 1) + ' · Up Next</strong><span>The timer and game credits begin when Start Game is tapped.</span></div>'
+      + teamsHtml(court, index, true)
+      + '<div class="court-action-grid"><button class="btn btn-accent" onclick="startStagedGame(' + index + ')">▶ Start Game</button>'
+      + '<button class="btn btn-ghost" onclick="openManualMatchBuilder(' + index + ')">✎ Edit Match</button>'
+      + '<button class="btn btn-ghost" onclick="cancelStagedGame(' + index + ')">✕ Remove</button></div>';
   } else if (court.status === 'done') {
-    body = teamsHtml(court, index, true) + '<button class="btn btn-accent btn-block" style="margin-top:12px" onclick="generateForCourt(' + index + ')">▶ Generate Next Game</button>';
+    body = teamsHtml(court, index, true) + '<div class="court-action-grid"><button class="btn btn-accent" onclick="generateForCourt(' + index + ')">⏭ Stage Fair Game</button>'
+      + '<button class="btn btn-ghost" onclick="openManualMatchBuilder(' + index + ')">✋ Build Manually</button></div>';
   } else {
     var eligible = Engine.eligibleIdsForCourt(S, index).length;
     var eligibility = court.skillGroup === 'any' ? 'No game assigned yet.' : eligible + ' of 4 ' + Engine.skillGroupLabel(court.skillGroup) + ' players eligible.';
-    body = '<div class="court-empty-body">' + esc(eligibility) + '</div><button class="btn btn-primary btn-block" onclick="generateForCourt(' + index + ')">▶ Generate Next Game</button>';
+    body = '<div class="court-empty-body">' + esc(eligibility) + '</div><div class="court-action-grid"><button class="btn btn-primary" onclick="generateForCourt(' + index + ')">⏭ Stage Fair Game</button>'
+      + '<button class="btn btn-ghost" onclick="openManualMatchBuilder(' + index + ')">✋ Build Manually</button></div>';
   }
-  return '<div class="court-card court-card-' + color + (court.status === 'playing' ? ' is-playing' : court.status === 'done' ? ' is-done' : '') + '">'
-    + '<div class="court-card-header"><div class="court-name"><span class="court-dot dot-' + color + '"></span>Court ' + court.courtNum + '</div><div class="court-header-badges"><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(Engine.skillGroupLabel(court.skillGroup)) + '</span>' + statusBadgeHtml(court.status) + '</div></div>' + body + '</div>';
+  return '<div class="court-card court-card-' + color + (court.status === 'playing' ? ' is-playing' : court.status === 'staged' ? ' is-staged' : court.status === 'done' ? ' is-done' : '') + '">'
+    + '<div class="court-card-header"><div class="court-name"><span class="court-dot dot-' + color + '"></span>' + esc(Engine.courtDisplayName(court)) + '</div><div class="court-header-badges"><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(Engine.skillGroupLabel(court.skillGroup)) + '</span>' + statusBadgeHtml(court.status) + '</div></div>' + body + '</div>';
 }
 
 function renderCourtsSection() {
   var element = document.getElementById('courtsSection');
   if (!S.players.length) {
-    element.innerHTML = '<div class="no-games"><div class="no-games-icon">🏓</div><p>Add players, then tap<br><strong>⚡ Fill Available Courts</strong> to start!</p></div>';
+    element.innerHTML = '<div class="no-games"><div class="no-games-icon">🏓</div><p>Add players, then tap<br><strong>⏭ Stage Available Courts</strong> to build the next games.</p></div>';
     return;
   }
   element.innerHTML = S.courtStates.map(renderCourtCard).join('');
@@ -1959,7 +2205,8 @@ function renderHistorySection() {
     var date = new Date(entry.ts || Date.now());
     var teamA = entry.teamANames || (entry.teamA || []).map(function (id) { return Engine.playerName(S, id); });
     var teamB = entry.teamBNames || (entry.teamB || []).map(function (id) { return Engine.playerName(S, id); });
-    html += '<div class="history-item"><div class="history-meta">Court ' + entry.courtNum + ' · Game ' + entry.gameNum + ' · '
+    html += '<div class="history-item"><div class="history-meta">' + esc(entry.courtName || ('Court ' + entry.courtNum)) + ' · Game ' + entry.gameNum
+      + (entry.durationMs != null ? ' · ' + formatDuration(entry.durationMs) : '') + ' · '
       + date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</div>'
       + '<div class="history-result"><span class="' + (entry.winner === 'A' ? 'h-winner' : 'h-loser') + '">🟢 ' + esc(teamA.join(' & ')) + '</span><span class="h-vs">vs</span>'
       + '<span class="' + (entry.winner === 'B' ? 'h-winner' : 'h-loser') + '">🔵 ' + esc(teamB.join(' & ')) + '</span></div></div>';
@@ -2003,7 +2250,7 @@ function renderLeaderboard() {
   card.style.display = 'block';
   var sorted = Engine.rankedPlayers(S);
   if (!sorted.some(function (player) { return player.games > 0; })) {
-    body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No games played yet. Generate games to start tracking stats.</div></td></tr>'; return;
+    body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No games completed yet. Stage and start a game to begin tracking stats.</div></td></tr>'; return;
   }
   body.innerHTML = sorted.map(function (player, index) {
     var rank = index + 1, percent = player.games ? Math.round(player.wins / player.games * 100) : 0;
@@ -2132,6 +2379,7 @@ document.getElementById('installBtn').addEventListener('click', function () {
 window.addEventListener('appinstalled', function () { document.getElementById('installBanner').classList.remove('visible'); showToast('App installed!'); });
 
 renderAppVersion();
+setInterval(updateCourtTimers, 1000);
 var updateAppButton = document.getElementById('updateAppBtn');
 if (updateAppButton) {
   updateAppButton.addEventListener('click', updateAppToLatest);

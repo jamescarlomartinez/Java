@@ -152,6 +152,10 @@
     .court-groups-heading small { color: var(--text-muted); font-size: .65rem; font-weight: 600; text-transform: none; letter-spacing: 0; text-align: right; }
     #courtSkillGroups { display: grid; gap: 7px; }
     .court-group-row { min-height: 48px; display: grid; grid-template-columns: minmax(72px, .55fr) minmax(0, 1fr); align-items: center; gap: 10px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font-size: .82rem; }
+    .court-name-button { min-width: 0; min-height: 44px; display: grid; align-content: center; gap: 2px; padding: 6px 8px; color: var(--text); background: transparent; border: 0; border-radius: 8px; text-align: left; cursor: pointer; }
+    .court-name-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 900; }
+    .court-name-button small { color: var(--text-muted); font-size: .64rem; font-weight: 700; }
+    .court-name-button:focus-visible { outline: 2px solid var(--primary-light); outline-offset: 1px; }
     .court-group-select { width: 100%; min-height: 44px; padding: 8px 34px 8px 10px; border: 1px solid var(--primary); border-radius: 8px; background: var(--card2); color: var(--text); font: inherit; font-weight: 800; }
     .court-skill-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 9px; border-radius: 999px; font-size: .66rem; font-weight: 900; line-height: 1.2; text-align: center; }
     .court-skill-badge.group-any { color: #cdd5d1; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); }
@@ -193,6 +197,7 @@
 
     /* status-specific borders */
     .court-card.is-playing { box-shadow: 0 0 0 2px rgba(82,183,136,.35); }
+    .court-card.is-staged  { box-shadow: 0 0 0 2px rgba(244,162,97,.3); }
     .court-card.is-done    { box-shadow: 0 0 0 2px rgba(74,138,240,.25); }
 
     .court-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
@@ -209,6 +214,7 @@
     /* Status badges */
     .status-badge { font-size: 0.68rem; font-weight: 800; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: .5px; flex-shrink: 0; }
     .status-empty   { background: rgba(255,255,255,.07); color: var(--text-muted); }
+    .status-staged  { background: rgba(244,162,97,.16); color: #ffd58a; border: 1px solid rgba(244,162,97,.45); }
     .status-playing { background: rgba(82,183,136,.18); color: #6dffb0; border: 1px solid rgba(82,183,136,.5); }
     .status-done    { background: rgba(74,138,240,.18); color: #90b8ff; border: 1px solid rgba(74,138,240,.5); }
 
@@ -228,6 +234,12 @@
 
     /* Court empty state */
     .court-empty-body { text-align: center; padding: 14px 0 10px; color: var(--text-muted); font-size: 0.88rem; }
+    .staged-callout { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: -2px 0 10px; padding: 9px 11px; border: 1px solid rgba(244,162,97,.28); border-radius: 9px; background: rgba(244,162,97,.08); }
+    .staged-callout strong { color: var(--accent); font-size: .78rem; white-space: nowrap; }
+    .staged-callout span { color: var(--text-muted); font-size: .68rem; line-height: 1.35; text-align: right; }
+    .court-timer { display: flex; justify-content: center; align-items: center; gap: 6px; width: fit-content; min-width: 88px; margin: -2px auto 10px; padding: 6px 12px; border-radius: 999px; color: #a7f3d0; background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3); font-size: .82rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+    .court-action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin-top: 12px; }
+    .court-action-grid .btn { min-width: 0; min-height: 46px; white-space: normal; }
 
     /* Winner section */
     .winner-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08); }
@@ -279,6 +291,7 @@
 
     /* Leaderboard */
     .lb-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .lb-header-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
     .lb-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
     .lb-table th { padding: 7px 8px; color: var(--text-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
     .lb-table th:first-child { text-align: center; width: 32px; }
@@ -396,6 +409,27 @@
     #modalBody::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 999px; }
     .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
     .modal-actions .btn { flex: 1; min-height: 44px; white-space: normal; }
+    .manual-builder { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; gap: 10px; }
+    .manual-team { display: grid; align-content: start; gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+    .manual-team > strong { color: var(--primary-light); font-size: .8rem; }
+    .manual-slot { display: grid; gap: 5px; color: var(--text-muted); font-size: .69rem; font-weight: 800; }
+    .manual-slot .modal-field { min-height: 48px; padding: 9px 30px 9px 9px; font-size: .78rem; }
+    .manual-vs { display: flex; align-items: center; color: var(--accent); font-size: .76rem; font-weight: 950; }
+    .manual-builder-note { margin-top: 10px; color: var(--text-muted); font-size: .72rem; line-height: 1.4; }
+    .summary-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .summary-metric { min-width: 0; display: grid; gap: 3px; padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg); }
+    .summary-metric strong { color: var(--accent); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+    .summary-metric span { color: var(--text-muted); font-size: .68rem; line-height: 1.3; }
+    .summary-section { margin-top: 15px; }
+    .summary-section h3 { margin: 0 0 8px; color: var(--primary-light); font-size: .76rem; text-transform: uppercase; letter-spacing: .7px; }
+    .summary-courts { display: grid; gap: 6px; }
+    .summary-court-row { display: flex; justify-content: space-between; gap: 10px; padding: 9px 10px; border-bottom: 1px solid rgba(42,90,62,.4); color: var(--text); font-size: .76rem; }
+    .summary-court-row strong { color: var(--text-muted); text-align: right; }
+    .summary-table-wrap { overflow-x: auto; }
+    .summary-table { width: 100%; min-width: 390px; border-collapse: collapse; font-size: .76rem; }
+    .summary-table th, .summary-table td { padding: 8px; border-bottom: 1px solid rgba(42,90,62,.4); text-align: right; }
+    .summary-table th { color: var(--text-muted); font-size: .66rem; text-transform: uppercase; }
+    .summary-table th:nth-child(2), .summary-table td:nth-child(2) { text-align: left; }
     .picker-list { display: grid; gap: 7px; }
     .picker-option { width: 100%; text-align: left; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: .9rem; font-weight: 700; cursor: pointer; }
     .picker-option strong { color: var(--accent); }
@@ -481,6 +515,13 @@
       .court-card-header { align-items: flex-start; }
       .court-header-badges { max-width: 62%; }
       .court-skill-badge { white-space: normal; }
+      .staged-callout { align-items: flex-start; flex-direction: column; }
+      .staged-callout span { text-align: left; }
+      .manual-builder { grid-template-columns: 1fr; }
+      .manual-vs { justify-content: center; min-height: 24px; }
+      .lb-header-row { align-items: flex-start; gap: 9px; flex-direction: column; }
+      .lb-header-actions { width: 100%; justify-content: stretch; }
+      .lb-header-actions .btn { flex: 1; min-height: 44px; }
     }
     @media (max-width: 360px) {
       .session-top { flex-wrap: wrap; }
@@ -592,7 +633,7 @@
     </div>
     <div class="stats-row">
       <div class="stat-cell"><div class="stat-num" id="sTotal">0</div><div class="stat-lbl">Players</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sOnCourt">0</div><div class="stat-lbl">On Court</div></div>
+      <div class="stat-cell"><div class="stat-num" id="sOnCourt">0</div><div class="stat-lbl">Assigned</div></div>
       <div class="stat-cell"><div class="stat-num" id="sAvail">0</div><div class="stat-lbl">Available</div></div>
       <div class="stat-cell"><div class="stat-num" id="sActive">0</div><div class="stat-lbl">In Play</div></div>
     </div>
@@ -600,7 +641,7 @@
 
   <!-- Action Buttons -->
   <div class="action-row" id="actionControls">
-    <button class="btn btn-accent btn-block" style="flex:2" onclick="fillAvailableCourts()">⚡ Fill Available Courts</button>
+    <button class="btn btn-accent btn-block" style="flex:2" onclick="fillAvailableCourts()">⏭ Stage Available Courts</button>
     <button class="btn btn-reset btn-block host-only" data-host-only style="flex:1" onclick="resetAllCourts()">↺ Reset All</button>
   </div>
 
@@ -614,7 +655,8 @@
   <div class="card" id="statsCard" style="display:none">
     <div class="lb-header-row">
       <div class="card-title" style="margin-bottom:0"><span class="card-title-left">📊 Player Standings</span></div>
-      <button class="btn btn-ghost btn-sm host-only" data-host-only onclick="resetStats()">Reset Stats</button>
+      <div class="lb-header-actions"><button class="btn btn-primary btn-sm" onclick="openSessionSummary()">📄 Summary & Export</button>
+        <button class="btn btn-ghost btn-sm host-only" data-host-only onclick="resetStats()">Reset Stats</button></div>
     </div>
     <table class="lb-table">
       <thead>
