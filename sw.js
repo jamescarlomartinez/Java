@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v23-staged-games-and-session-tools';
+const CACHE = 'pickleball-v24-per-court-next-lineups';
 const ASSETS = [
   './',
   './index.html',

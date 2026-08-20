@@ -59,7 +59,7 @@ test('migrates pickleballRotation_v2 names, stats, availability, courts, and his
     history: [{ courtNum: 1, gameNum: 3, teamA: ['Amy', 'Cara'], teamB: ['Ben', 'Dan'], winner: 'A', ts: 42 }]
   });
 
-  assert.equal(migrated.schemaVersion, 7);
+  assert.equal(migrated.schemaVersion, 8);
   assert.equal(new Set(migrated.players.map(player => player.id)).size, 4);
   assert.equal(migrated.players.find(player => player.name === 'Amy').games, 3);
   assert.equal(migrated.players.find(player => player.name === 'Amy').wins, 2);
@@ -79,7 +79,7 @@ test('normalizes older room players with social matchmaking and check-in default
     history: []
   });
 
-  assert.equal(normalized.schemaVersion, 7);
+  assert.equal(normalized.schemaVersion, 8);
   assert.equal(normalized.matchmakingMode, 'social');
   assert.equal(normalized.players[0].skillRating, null);
   assert.equal(normalized.players[0].skillLevelConfirmed, false);
@@ -111,7 +111,7 @@ test('new schema exposes only the two ordered skill levels and court groups', ()
   assert.ok(Engine.SKILL_LEVELS.every(level => level.description.length > 20));
 });
 
-test('schema-7 migration preserves schema-6 skill levels and adds safe court defaults', () => {
+test('schema-8 migration preserves schema-6 skill levels and adds safe court defaults', () => {
   const normalized = Engine.normalizeState({
     schemaVersion: 6,
     courts: 1,
@@ -123,27 +123,27 @@ test('schema-7 migration preserves schema-6 skill levels and adds safe court def
     history: []
   });
 
-  assert.equal(normalized.schemaVersion, 7);
+  assert.equal(normalized.schemaVersion, 8);
   assert.equal(normalized.players[0].skillRating, 2);
   assert.equal(normalized.players[0].skillLevelConfirmed, true);
   assert.equal(normalized.courtStates[0].name, 'Court 1');
   assert.equal(normalized.courtStates[0].startedAt, null);
 });
 
-test('staging reserves players without game credit and start begins credits and timer', () => {
+test('preparing reserves players without game credit and start begins credits and timer', () => {
   const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 1);
   state.courtStates[0].name = 'Main Court';
 
-  const staged = Engine.stageGame(state, 0, () => 0.5, 1000);
-  assert.equal(staged.changed, true);
-  assert.equal(staged.court.status, 'staged');
-  assert.equal(staged.court.stagedAt, 1000);
-  assert.equal(staged.court.startedAt, null);
+  const prepared = Engine.prepareNextGame(state, 0, () => 0.5, 1000);
+  assert.equal(prepared.changed, true);
+  assert.equal(prepared.court.status, 'empty');
+  assert.equal(prepared.court.nextGame.preparedAt, 1000);
+  assert.equal(prepared.court.startedAt, null);
   assert.equal(state.players.reduce((sum, player) => sum + player.games, 0), 0);
   assert.equal(Engine.lockedIds(state).length, 4);
   assert.equal(Engine.availableIds(state).length, 4);
 
-  const started = Engine.startStagedGame(state, 0, 5000);
+  const started = Engine.startNextGame(state, 0, 5000);
   assert.equal(started.changed, true);
   assert.equal(started.court.status, 'playing');
   assert.equal(started.court.gameNum, 1);
@@ -155,23 +155,123 @@ test('staging reserves players without game credit and start begins credits and 
   assert.equal(state.history[0].durationMs, 60000);
 });
 
-test('manual builder preserves exact teams and rejects duplicate or ineligible players', () => {
+test('manual next builder preserves exact teams and rejects duplicate or ineligible players', () => {
   const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E'], 1);
-  const exact = Engine.stageManualGame(state, 0, ['p3', 'p1'], ['p4', 'p0'], 2000);
+  const exact = Engine.prepareManualNextGame(state, 0, ['p3', 'p1'], ['p4', 'p0'], 2000);
   assert.equal(exact.changed, true);
-  assert.deepEqual(state.courtStates[0].teamA, ['p3', 'p1']);
-  assert.deepEqual(state.courtStates[0].teamB, ['p4', 'p0']);
-  assert.equal(state.courtStates[0].stagedSource, 'manual');
+  assert.deepEqual(state.courtStates[0].nextGame.teamA, ['p3', 'p1']);
+  assert.deepEqual(state.courtStates[0].nextGame.teamB, ['p4', 'p0']);
+  assert.equal(state.courtStates[0].nextGame.source, 'manual');
   assert.equal(state.players.reduce((sum, player) => sum + player.games, 0), 0);
 
-  const duplicate = Engine.stageManualGame(state, 0, ['p3', 'p3'], ['p4', 'p0'], 3000);
+  const duplicate = Engine.prepareManualNextGame(state, 0, ['p3', 'p3'], ['p4', 'p0'], 3000);
   assert.equal(duplicate.changed, false);
   assert.match(duplicate.reason, /four different/i);
 
-  const cleared = Engine.clearStagedGame(state, 0);
+  const cleared = Engine.clearNextGame(state, 0);
   assert.equal(cleared.changed, true);
   assert.equal(state.courtStates[0].status, 'empty');
   assert.equal(Engine.availableIds(state).length, 5);
+});
+
+test('schema-7 staged courts migrate into an independent next lineup', () => {
+  const old = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
+  old.schemaVersion = 7;
+  Object.assign(old.courtStates[0], {
+    status: 'staged', gameNum: 3, teamA: ['p0', 'p1'], teamB: ['p2', 'p3'],
+    stagedAt: 1234, stagedSource: 'manual', skillGroup: 'beginner'
+  });
+
+  const migrated = Engine.normalizeState(old);
+  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.courtStates[0].status, 'empty');
+  assert.deepEqual(migrated.courtStates[0].teamA, []);
+  assert.deepEqual(migrated.courtStates[0].nextGame, {
+    gameNum: 4,
+    teamA: ['p0', 'p1'],
+    teamB: ['p2', 'p3'],
+    preparedAt: 1234,
+    source: 'manual',
+    skillGroup: 'beginner'
+  });
+  assert.deepEqual(Engine.nextIds(migrated), ['p0', 'p1', 'p2', 'p3']);
+});
+
+test('an active court keeps an independent reserved next lineup', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 1);
+  Engine.assignGame(state, 0, () => 0.5, 1000);
+  const active = Engine.activeIds(state).slice();
+  const creditsBeforePreparing = state.players.reduce((sum, player) => sum + player.games, 0);
+
+  const prepared = Engine.prepareNextGame(state, 0, () => 0.5, 2000);
+  assert.equal(prepared.changed, true);
+  assert.equal(state.courtStates[0].status, 'playing');
+  assert.deepEqual(Engine.activeIds(state), active);
+  assert.equal(new Set(Engine.lockedIds(state)).size, 8);
+  assert.equal(state.players.reduce((sum, player) => sum + player.games, 0), creditsBeforePreparing);
+  assert.equal(Engine.availableIds(state).length, 0);
+});
+
+test('recording a winner promotes Up Next without starting credits or timer', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 1);
+  Engine.assignGame(state, 0, () => 0.5, 1000);
+  Engine.prepareNextGame(state, 0, () => 0.5, 2000);
+  const preparedIds = Engine.nextIds(state).slice();
+  const creditsBeforeWinner = Object.fromEntries(state.players.map(player => [player.id, player.games]));
+
+  const completed = Engine.recordWinner(state, 0, 'A', 61000);
+  assert.equal(completed.changed, true);
+  assert.equal(state.history.length, 1);
+  assert.equal(state.courtStates[0].status, 'empty');
+  assert.ok(state.courtStates[0].nextGame);
+  assert.equal(state.courtStates[0].startedAt, null);
+  preparedIds.forEach(id => assert.equal(Engine.playerById(state, id).games, creditsBeforeWinner[id]));
+
+  const started = Engine.startNextGame(state, 0, 70000);
+  assert.equal(started.changed, true);
+  assert.equal(started.court.gameNum, 2);
+  assert.equal(started.court.startedAt, 70000);
+  assert.equal(started.court.nextGame, null);
+  preparedIds.forEach(id => assert.equal(Engine.playerById(state, id).games, creditsBeforeWinner[id] + 1));
+});
+
+test('manual editing releases the previous reservation and prevents cross-court duplicates', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'], 2);
+  assert.equal(Engine.prepareManualNextGame(state, 0, ['p0', 'p1'], ['p2', 'p3'], 1000).changed, true);
+  assert.equal(Engine.prepareManualNextGame(state, 1, ['p0', 'p4'], ['p5', 'p6'], 1100).changed, false);
+  assert.equal(Engine.prepareManualNextGame(state, 0, ['p4', 'p5'], ['p6', 'p7'], 1200).changed, true);
+  assert.ok(Engine.availableIds(state).includes('p0'));
+  assert.equal(new Set(Engine.lockedIds(state)).size, 4);
+});
+
+test('bulk preparation order is idle-first and strict-first within each pass', () => {
+  const state = stateWithPlayers(Array.from({ length: 16 }, (_, index) => String(index + 1)), 4);
+  state.courtStates[0].status = 'playing';
+  state.courtStates[0].teamA = ['p0', 'p1'];
+  state.courtStates[0].teamB = ['p2', 'p3'];
+  state.courtStates[0].skillGroup = 'any';
+  state.courtStates[1].skillGroup = 'any';
+  state.courtStates[2].skillGroup = 'beginner';
+  state.courtStates[3].status = 'playing';
+  state.courtStates[3].teamA = ['p4', 'p5'];
+  state.courtStates[3].teamB = ['p6', 'p7'];
+  state.courtStates[3].skillGroup = 'beginner';
+
+  assert.deepEqual(Engine.courtPreparationOrder(state), [2, 1, 3, 0]);
+});
+
+test('prepared skill designation is a snapshot and reset releases all reservations', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
+  Engine.checkInPlayer(state, 'p0', 'uid', 'A', 1);
+  state.courtStates[0].skillGroup = 'beginner';
+  Engine.prepareNextGame(state, 0, () => 0.5, 1000);
+  state.courtStates[0].skillGroup = 'intermediate_plus';
+  assert.equal(state.courtStates[0].nextGame.skillGroup, 'beginner');
+  assert.equal(Engine.setSelfSkillRating(state, 'p0', 'uid', 2).changed, false);
+  Engine.resetCourts(state);
+  assert.equal(state.courtStates[0].nextGame, null);
+  assert.deepEqual(Engine.lockedIds(state), []);
+  assert.equal(state.courtStates[0].skillGroup, 'intermediate_plus');
 });
 
 test('a migrated player must confirm their provisional level at check-in', () => {
@@ -280,7 +380,7 @@ test('controller switching is blocked on court and new players start with zero s
     kind: 'new', playerId: 'p-new', name: 'James Player', skillRating: 2
   }, 'controller-uid', 'James');
   assert.equal(blocked.changed, false);
-  assert.match(blocked.reason, /staged or active court/i);
+  assert.match(blocked.reason, /active or Up Next lineup/i);
   assert.equal(state.players.length, 4);
   assert.equal(state.players[0].checkedInUid, 'controller-uid');
 
@@ -319,7 +419,7 @@ test('a checked-in player cannot take a break or leave while assigned to a court
   Engine.assignGame(state, 0, () => 0.5);
 
   assert.equal(Engine.setSelfAvailability(state, 'p0', 'uid-amy', true).changed, false);
-  assert.match(Engine.checkOutPlayer(state, 'p0', 'uid-amy').reason, /staged or active court/i);
+  assert.match(Engine.checkOutPlayer(state, 'p0', 'uid-amy').reason, /active or Up Next lineup/i);
 });
 
 test('balanced mode minimizes team skill gap after fairness criteria', () => {
