@@ -492,13 +492,34 @@
         var teamASkill = partition[0].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
         var teamBSkill = partition[1].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
         var skillGap = state.matchmakingMode === 'balanced' ? Math.abs(teamASkill - teamBSkill) : 0;
-        var teammateRepeats = (state.teammateCounts[pairKey(partition[0][0], partition[0][1])] || 0)
-          + (state.teammateCounts[pairKey(partition[1][0], partition[1][1])] || 0);
-        var opponentRepeats = 0;
+        var teammatePairCounts = [
+          state.teammateCounts[pairKey(partition[0][0], partition[0][1])] || 0,
+          state.teammateCounts[pairKey(partition[1][0], partition[1][1])] || 0
+        ];
+        var teammateRepeatedPairs = teammatePairCounts.filter(function (count) { return count > 0; }).length;
+        var teammateMax = Math.max.apply(null, teammatePairCounts);
+        var teammateRepeats = teammatePairCounts.reduce(function (sum, count) { return sum + count; }, 0);
+        var opponentPairCounts = [];
         partition[0].forEach(function (a) {
-          partition[1].forEach(function (b) { opponentRepeats += state.opponentCounts[pairKey(a, b)] || 0; });
+          partition[1].forEach(function (b) { opponentPairCounts.push(state.opponentCounts[pairKey(a, b)] || 0); });
         });
-        var score = [spread, pickedGames, backToBack, -waitTotal, skillGap, teammateRepeats, opponentRepeats, randomFn()];
+        var opponentRepeatedPairs = opponentPairCounts.filter(function (count) { return count > 0; }).length;
+        var opponentMax = Math.max.apply(null, opponentPairCounts);
+        var opponentRepeats = opponentPairCounts.reduce(function (sum, count) { return sum + count; }, 0);
+        var score = [
+          spread,
+          pickedGames,
+          skillGap,
+          teammateRepeatedPairs,
+          teammateMax,
+          teammateRepeats,
+          opponentRepeatedPairs,
+          opponentMax,
+          opponentRepeats,
+          backToBack,
+          -waitTotal,
+          randomFn()
+        ];
         if (!best || compareTuple(score, best.score) < 0) best = { teamA: partition[0], teamB: partition[1], score: score };
       });
     });

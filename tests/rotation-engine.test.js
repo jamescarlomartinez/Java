@@ -22,6 +22,32 @@ function stateWithPlayers(names, courts = 2) {
   return state;
 }
 
+function completeRotationCycles(state, cycles, random = () => 0.5) {
+  for (let cycle = 0; cycle < cycles; cycle += 1) {
+    Engine.courtFillOrder(state).forEach(index => {
+      if (state.courtStates[index].status !== 'playing') Engine.assignGame(state, index, random);
+    });
+    state.courtStates.forEach((court, index) => {
+      if (court.status === 'playing') Engine.recordWinner(state, index, 'A', cycle + 1);
+    });
+  }
+}
+
+function relationshipSets(state, source) {
+  const relationships = new Map(state.players.map(player => [player.id, new Set()]));
+  Object.keys(source).forEach(pair => {
+    const [a, b] = pair.split('|');
+    relationships.get(a).add(b);
+    relationships.get(b).add(a);
+  });
+  return relationships;
+}
+
+function gameSpread(state) {
+  const games = state.players.filter(player => !player.notAvailable).map(player => player.games);
+  return Math.max(...games) - Math.min(...games);
+}
+
 test('migrates pickleballRotation_v2 names, stats, availability, courts, and history', () => {
   const migrated = Engine.migrateLegacy({
     players: ['Amy', 'Ben', 'Cara', 'Dan'],
@@ -319,6 +345,115 @@ test('uses longest waiting order after game counts are equal', () => {
   assert.equal(selected.includes('p4'), false);
 });
 
+test('eight players complete every teammate and opponent pairing without fixed groups', () => {
+  const state = stateWithPlayers(Array.from({ length: 8 }, (_, index) => String(index + 1)), 1);
+  completeRotationCycles(state, 14);
+
+  const teammates = relationshipSets(state, state.teammateCounts);
+  const opponents = relationshipSets(state, state.opponentCounts);
+  state.players.forEach(player => {
+    assert.equal(teammates.get(player.id).size, 7);
+    assert.equal(opponents.get(player.id).size, 7);
+  });
+  assert.equal(gameSpread(state), 0);
+});
+
+test('multi-court rotations progressively complete twelve and sixteen player coverage', () => {
+  const twelve = stateWithPlayers(Array.from({ length: 12 }, (_, index) => String(index + 1)), 2);
+  completeRotationCycles(twelve, 18);
+  relationshipSets(twelve, twelve.teammateCounts).forEach(partners => assert.equal(partners.size, 11));
+  relationshipSets(twelve, twelve.opponentCounts).forEach(opponents => assert.equal(opponents.size, 11));
+  assert.ok(gameSpread(twelve) <= 1);
+
+  const sixteen = stateWithPlayers(Array.from({ length: 16 }, (_, index) => String(index + 1)), 2);
+  completeRotationCycles(sixteen, 40);
+  relationshipSets(sixteen, sixteen.teammateCounts).forEach(partners => assert.equal(partners.size, 15));
+  relationshipSets(sixteen, sixteen.opponentCounts).forEach(opponents => assert.equal(opponents.size, 15));
+  assert.ok(gameSpread(sixteen) <= 1);
+});
+
+test('new teammates take priority over fresh opponents when game counts are equally fair', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
+  state.teammateCounts[Engine.pairKey('p0', 'p1')] = 1;
+  state.teammateCounts[Engine.pairKey('p2', 'p3')] = 1;
+  state.teammateCounts[Engine.pairKey('p0', 'p3')] = 1;
+  state.teammateCounts[Engine.pairKey('p1', 'p2')] = 1;
+  [
+    ['p0', 'p1'], ['p0', 'p3'], ['p2', 'p1'], ['p2', 'p3']
+  ].forEach(pair => { state.opponentCounts[Engine.pairKey(...pair)] = 5; });
+
+  const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
+  const teammatePairs = [Engine.pairKey(...assignment.teamA), Engine.pairKey(...assignment.teamB)];
+  assert.deepEqual(new Set(teammatePairs), new Set([
+    Engine.pairKey('p0', 'p2'), Engine.pairKey('p1', 'p3')
+  ]));
+});
+
+test('fresh opponents break ties after teammate coverage is equal', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
+  for (let a = 0; a < 4; a += 1) {
+    for (let b = a + 1; b < 4; b += 1) state.teammateCounts[Engine.pairKey(`p${a}`, `p${b}`)] = 1;
+  }
+  state.opponentCounts[Engine.pairKey('p0', 'p3')] = 5;
+  state.opponentCounts[Engine.pairKey('p1', 'p2')] = 5;
+
+  const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
+  const teammatePairs = [Engine.pairKey(...assignment.teamA), Engine.pairKey(...assignment.teamB)];
+  assert.deepEqual(new Set(teammatePairs), new Set([
+    Engine.pairKey('p0', 'p3'), Engine.pairKey('p1', 'p2')
+  ]));
+});
+
+test('coverage may use back-to-back players after game counts have been equalized', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 1);
+  Engine.assignGame(state, 0, () => 0.5);
+  Engine.recordWinner(state, 0, 'A');
+  Engine.assignGame(state, 0, () => 0.5);
+  const previousPlayers = new Set(state.courtStates[0].teamA.concat(state.courtStates[0].teamB));
+  Engine.recordWinner(state, 0, 'A');
+
+  Engine.assignGame(state, 0, () => 0.5);
+  const selected = state.courtStates[0].teamA.concat(state.courtStates[0].teamB);
+  assert.ok(selected.some(id => previousPlayers.has(id)));
+  assert.ok(selected.some(id => !previousPlayers.has(id)));
+  assert.ok(gameSpread(state) <= 1);
+});
+
+test('skill-balanced rotation preserves team balance while expanding matchup coverage', () => {
+  const state = stateWithPlayers(Array.from({ length: 8 }, (_, index) => String(index + 1)), 1);
+  state.matchmakingMode = 'balanced';
+  state.players.forEach((player, index) => { player.skillRating = index < 4 ? 1 : 2; });
+  let largestSkillGap = 0;
+
+  for (let game = 0; game < 24; game += 1) {
+    Engine.assignGame(state, 0, () => 0.5);
+    const court = state.courtStates[0];
+    const total = team => team.reduce((sum, id) => sum + Engine.playerSkillWeight(Engine.playerById(state, id)), 0);
+    largestSkillGap = Math.max(largestSkillGap, Math.abs(total(court.teamA) - total(court.teamB)));
+    Engine.recordWinner(state, 0, 'A');
+  }
+
+  assert.equal(largestSkillGap, 0);
+  relationshipSets(state, state.teammateCounts).forEach(partners => assert.equal(partners.size, 7));
+  relationshipSets(state, state.opponentCounts).forEach(opponents => assert.equal(opponents.size, 7));
+});
+
+test('a late arrival is integrated without resetting existing matchup history', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 1);
+  completeRotationCycles(state, 4);
+  const previousCounts = Engine.clone(state.teammateCounts);
+  state.players.push({
+    id: 'late', name: 'Late Player', games: 0, wins: 0, notAvailable: false,
+    skillRating: 1, skillLevelConfirmed: true, checkedIn: false,
+    checkedInUid: null, checkedInName: null, lastAssignedRound: -1
+  });
+
+  completeRotationCycles(state, 8);
+  Object.keys(previousCounts).forEach(pair => assert.ok(state.teammateCounts[pair] >= previousCounts[pair]));
+  assert.ok(relationshipSets(state, state.teammateCounts).get('late').size >= 4);
+  assert.ok(gameSpread(state) <= 1);
+});
+
 test('avoids repeated teammates before repeated opponents', () => {
   const state = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
   state.teammateCounts[Engine.pairKey('p0', 'p1')] = 5;
@@ -438,6 +573,7 @@ test('winner recording finalizes history from the post-replacement lineup', () =
   const outgoingId = state.courtStates[0].teamA[0];
   Engine.replacePlayer(state, 0, 'A', 0, replacementId);
   const finalTeamA = state.courtStates[0].teamA.slice();
+  const finalTeamB = state.courtStates[0].teamB.slice();
   const before = Engine.clone(state);
 
   const result = Engine.recordWinner(state, 0, 'A', 1234);
@@ -446,6 +582,11 @@ test('winner recording finalizes history from the post-replacement lineup', () =
   assert.equal(state.history[0].teamA.includes(outgoingId), false);
   finalTeamA.forEach(id => assert.equal(Engine.playerById(state, id).wins, 1));
   assert.equal(state.teammateCounts[Engine.pairKey(...finalTeamA)], 1);
+  finalTeamA.forEach(a => finalTeamB.forEach(b => {
+    assert.equal(state.opponentCounts[Engine.pairKey(a, b)], 1);
+  }));
+  assert.equal(Object.keys(state.teammateCounts).some(pair => pair.split('|').includes(outgoingId)), false);
+  assert.equal(Object.keys(state.opponentCounts).some(pair => pair.split('|').includes(outgoingId)), false);
 
   const restored = Engine.normalizeState(before);
   assert.equal(restored.courtStates[0].status, 'playing');
