@@ -12,7 +12,8 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
   - `?room=<id>` opens normal controller mode.
   - `?room=<id>&mode=player` lets a player choose an existing roster name or enroll themselves, check in, take a break, return, or check out.
   - `?room=<id>&mode=view` opens a simplified live read-only board.
-- Social Fair remains the default rotation style. **Skill Balanced** uses **Beginner** and **Intermediate & Above** to minimize the team-skill gap after game-count and waiting fairness.
+- Social Fair remains the default rotation style. After game-count fairness, it prioritizes never-used teammates and opponents so the roster does not remain in fixed groups of four.
+- **Skill Balanced** uses **Beginner** and **Intermediate & Above** to minimize the team-skill gap before applying the same matchup-mixing priorities.
 - Every existing pre-v3.4 player is reset to an unconfirmed level. They may play on Any courts, but must choose one of the current levels before using a strict skill-designated court.
 - Controllers can designate every court as **Any level**, **Beginner**, or **Intermediate & Above**. Strict courts never mix levels and are filled before Any courts.
 - Checked-in players can explicitly enable free device alerts. The existing live Firestore room snapshot detects a new assignment, shows a system notification, displays an in-app banner, and vibrates when supported. No Cloud Functions, FCM token storage, or paid Firebase plan is required.

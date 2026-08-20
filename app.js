@@ -1,7 +1,7 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
-var APP_VERSION = '3.5.0';
+var APP_VERSION = '3.6.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
