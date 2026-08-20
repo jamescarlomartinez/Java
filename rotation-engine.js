@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  var SCHEMA_VERSION = 7;
+  var SCHEMA_VERSION = 8;
   var SKILL_LEVELS = [
     { value: 1, key: 'beginner', label: 'Beginner', description: 'Learning rules and building consistency.' },
     { value: 2, key: 'intermediate_plus', label: 'Intermediate & Above', description: 'Consistent rallies, positioning, and strategy through advanced play.' }
@@ -80,7 +80,8 @@
       skillGroup: 'any',
       stagedAt: null,
       startedAt: null,
-      stagedSource: null
+      stagedSource: null,
+      nextGame: null
     };
   }
 
@@ -118,6 +119,18 @@
       court.stagedAt = court.stagedAt != null && Number.isFinite(Number(court.stagedAt)) ? Number(court.stagedAt) : null;
       court.startedAt = court.startedAt != null && Number.isFinite(Number(court.startedAt)) ? Number(court.startedAt) : null;
       court.stagedSource = court.stagedSource === 'manual' ? 'manual' : court.stagedSource === 'auto' ? 'auto' : null;
+      if (court.nextGame && typeof court.nextGame === 'object') {
+        court.nextGame = {
+          gameNum: Math.max(1, Number(court.nextGame.gameNum) || ((Number(court.gameNum) || 0) + 1)),
+          teamA: Array.isArray(court.nextGame.teamA) ? court.nextGame.teamA.slice() : [],
+          teamB: Array.isArray(court.nextGame.teamB) ? court.nextGame.teamB.slice() : [],
+          preparedAt: court.nextGame.preparedAt != null && Number.isFinite(Number(court.nextGame.preparedAt)) ? Number(court.nextGame.preparedAt) : null,
+          source: court.nextGame.source === 'manual' ? 'manual' : 'auto',
+          skillGroup: normalizeSkillGroup(court.nextGame.skillGroup)
+        };
+      } else {
+        court.nextGame = null;
+      }
     });
   }
 
@@ -170,7 +183,8 @@
         skillGroup: 'any',
         stagedAt: null,
         startedAt: null,
-        stagedSource: null
+        stagedSource: null,
+        nextGame: null
       };
     });
     state.history = (legacy.history || []).slice(0, 100).map(function (entry) {
@@ -231,7 +245,27 @@
         && court.teamB.length === 2
         && lineup.every(function (id) { return rosterIds.has(id); })
         && new Set(lineup).size === 4;
-      if ((court.status === 'staged' || court.status === 'playing' || court.status === 'done') && hasCompleteCurrentLineup) {
+      if (sourceSchemaVersion < 8 && court.status === 'staged' && hasCompleteCurrentLineup) {
+        court.nextGame = {
+          gameNum: (Number(court.gameNum) || 0) + 1,
+          teamA: court.teamA.slice(),
+          teamB: court.teamB.slice(),
+          preparedAt: court.stagedAt,
+          source: court.stagedSource === 'manual' ? 'manual' : 'auto',
+          skillGroup: normalizeSkillGroup(court.skillGroup)
+        };
+        court.status = 'empty';
+        court.teamA = [];
+        court.teamB = [];
+        court.winner = null;
+        court.assignmentRound = 0;
+        court.previousLastAssigned = {};
+        court.stagedAt = null;
+        court.startedAt = null;
+        court.stagedSource = null;
+        return;
+      }
+      if ((court.status === 'playing' || court.status === 'done') && hasCompleteCurrentLineup) {
         var lineupIds = new Set(lineup);
         court.previousLastAssigned = Object.fromEntries(Object.entries(court.previousLastAssigned).filter(function (entry) {
           return lineupIds.has(entry[0]);
@@ -248,15 +282,44 @@
       court.startedAt = null;
       court.stagedSource = null;
     });
+    var reserved = new Set();
+    state.courtStates.forEach(function (court) {
+      if (court.status === 'playing') court.teamA.concat(court.teamB).forEach(function (id) { reserved.add(id); });
+    });
+    state.courtStates.forEach(function (court) {
+      var next = court.nextGame;
+      if (!next) return;
+      var nextLineup = next.teamA.concat(next.teamB);
+      var isComplete = next.teamA.length === 2 && next.teamB.length === 2
+        && nextLineup.every(function (id) { return rosterIds.has(id) && !reserved.has(id); })
+        && new Set(nextLineup).size === 4;
+      if (!isComplete) {
+        court.nextGame = null;
+        return;
+      }
+      nextLineup.forEach(function (id) { reserved.add(id); });
+    });
     return state;
   }
 
-  function lockedIds(state) {
+  function activeIds(state) {
     var result = [];
     state.courtStates.forEach(function (court) {
-      if (court.status === 'staged' || court.status === 'playing') result = result.concat(court.teamA, court.teamB);
+      if (court.status === 'playing') result = result.concat(court.teamA, court.teamB);
     });
     return result;
+  }
+
+  function nextIds(state) {
+    var result = [];
+    state.courtStates.forEach(function (court) {
+      if (court.nextGame) result = result.concat(court.nextGame.teamA, court.nextGame.teamB);
+    });
+    return result;
+  }
+
+  function lockedIds(state) {
+    return activeIds(state).concat(nextIds(state));
   }
 
   function availableIds(state) {
@@ -279,6 +342,18 @@
       var aAny = normalizeSkillGroup(state.courtStates[a].skillGroup) === 'any';
       var bAny = normalizeSkillGroup(state.courtStates[b].skillGroup) === 'any';
       return Number(aAny) - Number(bAny) || a - b;
+    });
+  }
+
+  function courtPreparationOrder(state) {
+    function rank(index) {
+      var court = state.courtStates[index];
+      return [court.status === 'playing' ? 1 : 0, normalizeSkillGroup(court.skillGroup) === 'any' ? 1 : 0, index];
+    }
+    return state.courtStates.map(function (_, index) { return index; }).filter(function (index) {
+      return !state.courtStates[index].nextGame;
+    }).sort(function (a, b) {
+      return compareTuple(rank(a), rank(b));
     });
   }
 
@@ -355,6 +430,9 @@
     if (!player || !player.checkedIn || player.checkedInUid !== uid) {
       return { changed: false, reason: 'This device is not checked in as that player.' };
     }
+    if (lockedIds(state).indexOf(player.id) !== -1) {
+      return { changed: false, reason: player.name + ' is on court or reserved Up Next.' };
+    }
     var numericRating = normalizeSkillLevel(skillRating);
     if (!numericRating) return { changed: false, reason: 'Choose a valid skill level.' };
     if (player.skillRating === numericRating && player.skillLevelConfirmed) {
@@ -371,7 +449,7 @@
       return { changed: false, reason: 'This device is not checked in as that player.' };
     }
     if (lockedIds(state).indexOf(player.id) !== -1) {
-      return { changed: false, reason: player.name + ' is already assigned to a court.' };
+      return { changed: false, reason: player.name + ' is on court or reserved Up Next.' };
     }
     notAvailable = !!notAvailable;
     if (player.notAvailable === notAvailable) return { changed: false, reason: 'Availability is already up to date.' };
@@ -385,7 +463,7 @@
       return { changed: false, reason: 'This device is not checked in as that player.' };
     }
     if (lockedIds(state).indexOf(player.id) !== -1) {
-      return { changed: false, reason: player.name + ' must be removed from the staged or active court before leaving.' };
+      return { changed: false, reason: player.name + ' must be removed from the active or Up Next lineup before leaving.' };
     }
     player.checkedIn = false;
     player.checkedInUid = null;
@@ -402,7 +480,7 @@
       return { changed: false, reason: 'Your current player identity is no longer available.' };
     }
     if (outgoing && currentPlayerId !== targetPlayerId && lockedIds(state).indexOf(currentPlayerId) !== -1) {
-      return { changed: false, reason: outgoing.name + ' must be removed from the staged or active court before changing player.' };
+      return { changed: false, reason: outgoing.name + ' must be removed from the active or Up Next lineup before changing player.' };
     }
     var unexpectedOwnedPlayer = state.players.find(function (player) {
       return player.checkedIn && player.checkedInUid === uid && player.id !== currentPlayerId;
@@ -548,44 +626,47 @@
   function eligibleIdsForManualCourt(state, courtIndex) {
     var court = state.courtStates[courtIndex];
     if (!court) return [];
-    var currentLineup = court.status === 'staged' ? court.teamA.concat(court.teamB) : [];
+    var currentLineup = court.nextGame ? court.nextGame.teamA.concat(court.nextGame.teamB) : [];
     var locked = new Set(lockedIds(state));
     currentLineup.forEach(function (id) { locked.delete(id); });
+    var skillGroup = court.nextGame ? court.nextGame.skillGroup : court.skillGroup;
     return state.players.filter(function (player) {
-      return !locked.has(player.id) && !player.notAvailable && playerMatchesSkillGroup(player, court.skillGroup);
+      return !locked.has(player.id) && !player.notAvailable && playerMatchesSkillGroup(player, skillGroup);
     }).map(function (player) { return player.id; });
   }
 
-  function setStagedLineup(court, teamA, teamB, source, now) {
-    court.teamA = teamA.slice();
-    court.teamB = teamB.slice();
-    court.status = 'staged';
-    court.winner = null;
-    court.assignmentRound = 0;
-    court.previousLastAssigned = {};
-    court.stagedAt = Number(now) || Date.now();
-    court.startedAt = null;
-    court.stagedSource = source;
+  function setNextLineup(court, teamA, teamB, source, now, skillGroup) {
+    court.nextGame = {
+      gameNum: (Number(court.gameNum) || 0) + 1,
+      teamA: teamA.slice(),
+      teamB: teamB.slice(),
+      preparedAt: Number(now) || Date.now(),
+      source: source === 'manual' ? 'manual' : 'auto',
+      skillGroup: normalizeSkillGroup(skillGroup)
+    };
   }
 
-  function stageGame(state, courtIndex, randomFn, now) {
+  function prepareNextGame(state, courtIndex, randomFn, now) {
     var court = state.courtStates[courtIndex];
-    if (!court || court.status === 'playing' || court.status === 'staged') return { changed: false, reason: courtDisplayName(court) + ' already has a game assigned.' };
-    var available = eligibleIdsForCourt(state, courtIndex);
+    if (!court) return { changed: false, reason: 'Court not found.' };
+    if (court.nextGame) return { changed: false, reason: courtDisplayName(court) + ' already has an Up Next lineup.' };
+    var skillGroup = court.skillGroup;
+    var available = availableIds(state).filter(function (id) {
+      return playerMatchesSkillGroup(playerById(state, id), skillGroup);
+    });
     if (available.length < 4) {
-      return { changed: false, reason: courtDisplayName(court) + ' needs 4 available ' + skillGroupLabel(court.skillGroup)
+      return { changed: false, reason: courtDisplayName(court) + ' needs 4 available ' + skillGroupLabel(skillGroup)
         + ' players; only ' + available.length + ' eligible.' };
     }
     var assignment = chooseAssignment(state, available, randomFn);
     if (!assignment) return { changed: false, reason: 'Could not build a fair game.' };
-    setStagedLineup(court, assignment.teamA, assignment.teamB, 'auto', now);
-    return { changed: true, court: court };
+    setNextLineup(court, assignment.teamA, assignment.teamB, 'auto', now, skillGroup);
+    return { changed: true, court: court, nextGame: court.nextGame };
   }
 
-  function stageManualGame(state, courtIndex, teamA, teamB, now) {
+  function prepareManualNextGame(state, courtIndex, teamA, teamB, now) {
     var court = state.courtStates[courtIndex];
     if (!court) return { changed: false, reason: 'Court not found.' };
-    if (court.status === 'playing') return { changed: false, reason: courtDisplayName(court) + ' is already in play.' };
     teamA = Array.isArray(teamA) ? teamA : [];
     teamB = Array.isArray(teamB) ? teamB : [];
     var lineup = teamA.concat(teamB);
@@ -596,20 +677,28 @@
     if (!lineup.every(function (id) { return eligible.has(id); })) {
       return { changed: false, reason: 'Every player must be available and eligible for this court.' };
     }
-    setStagedLineup(court, teamA, teamB, 'manual', now);
-    return { changed: true, court: court };
+    var skillGroup = court.nextGame ? court.nextGame.skillGroup : court.skillGroup;
+    setNextLineup(court, teamA, teamB, 'manual', now, skillGroup);
+    return { changed: true, court: court, nextGame: court.nextGame };
   }
 
-  function startStagedGame(state, courtIndex, now) {
+  function startNextGame(state, courtIndex, now) {
     var court = state.courtStates[courtIndex];
-    if (!court || court.status !== 'staged') return { changed: false, reason: 'Stage a complete game first.' };
+    if (!court || !court.nextGame) return { changed: false, reason: 'Prepare a complete Up Next lineup first.' };
+    if (court.status === 'playing') return { changed: false, reason: 'Record the current winner before starting the next game.' };
+    var next = court.nextGame;
     state.rotationRound += 1;
     court.status = 'playing';
-    court.gameNum = (court.gameNum || 0) + 1;
+    court.gameNum = next.gameNum;
+    court.teamA = next.teamA.slice();
+    court.teamB = next.teamB.slice();
     court.winner = null;
     court.assignmentRound = state.rotationRound;
     court.previousLastAssigned = {};
     court.startedAt = Number(now) || Date.now();
+    court.stagedAt = null;
+    court.stagedSource = null;
+    court.nextGame = null;
     court.teamA.concat(court.teamB).forEach(function (id) {
       var player = playerById(state, id);
       court.previousLastAssigned[id] = player.lastAssignedRound;
@@ -619,25 +708,33 @@
     return { changed: true, court: court };
   }
 
-  function clearStagedGame(state, courtIndex) {
+  function clearNextGame(state, courtIndex) {
     var court = state.courtStates[courtIndex];
-    if (!court || court.status !== 'staged') return { changed: false, reason: 'There is no staged game to remove.' };
-    court.status = 'empty';
-    court.teamA = [];
-    court.teamB = [];
-    court.winner = null;
-    court.assignmentRound = 0;
-    court.previousLastAssigned = {};
-    court.stagedAt = null;
-    court.startedAt = null;
-    court.stagedSource = null;
+    if (!court || !court.nextGame) return { changed: false, reason: 'There is no Up Next lineup to remove.' };
+    court.nextGame = null;
     return { changed: true, court: court };
   }
 
+  function stageGame(state, courtIndex, randomFn, now) {
+    return prepareNextGame(state, courtIndex, randomFn, now);
+  }
+
+  function stageManualGame(state, courtIndex, teamA, teamB, now) {
+    return prepareManualNextGame(state, courtIndex, teamA, teamB, now);
+  }
+
+  function startStagedGame(state, courtIndex, now) {
+    return startNextGame(state, courtIndex, now);
+  }
+
+  function clearStagedGame(state, courtIndex) {
+    return clearNextGame(state, courtIndex);
+  }
+
   function assignGame(state, courtIndex, randomFn, now) {
-    var staged = stageGame(state, courtIndex, randomFn, now);
-    if (!staged.changed) return staged;
-    return startStagedGame(state, courtIndex, now);
+    var prepared = prepareNextGame(state, courtIndex, randomFn, now);
+    if (!prepared.changed) return prepared;
+    return startNextGame(state, courtIndex, now);
   }
 
   function incrementPair(map, a, b) {
@@ -671,6 +768,15 @@
       ts: endedAt
     });
     state.history = state.history.slice(0, 100);
+    if (court.nextGame) {
+      court.status = 'empty';
+      court.teamA = [];
+      court.teamB = [];
+      court.winner = null;
+      court.assignmentRound = 0;
+      court.previousLastAssigned = {};
+      court.startedAt = null;
+    }
     return { changed: true, winners: winners.slice(), court: court };
   }
 
@@ -753,11 +859,14 @@
     courtDisplayName: courtDisplayName,
     playerSkillWeight: playerSkillWeight,
     playerMatchesSkillGroup: playerMatchesSkillGroup,
+    activeIds: activeIds,
+    nextIds: nextIds,
     lockedIds: lockedIds,
     availableIds: availableIds,
     eligibleIdsForCourt: eligibleIdsForCourt,
     eligibleIdsForManualCourt: eligibleIdsForManualCourt,
     courtFillOrder: courtFillOrder,
+    courtPreparationOrder: courtPreparationOrder,
     compareStandings: compareStandings,
     rankedPlayers: rankedPlayers,
     enrollPlayer: enrollPlayer,
@@ -768,6 +877,10 @@
     changeOwnedPlayer: changeOwnedPlayer,
     pairKey: pairKey,
     chooseAssignment: chooseAssignment,
+    prepareNextGame: prepareNextGame,
+    prepareManualNextGame: prepareManualNextGame,
+    startNextGame: startNextGame,
+    clearNextGame: clearNextGame,
     stageGame: stageGame,
     stageManualGame: stageManualGame,
     startStagedGame: startStagedGame,

@@ -170,8 +170,8 @@
     .matchmaking-help { color: var(--text-muted); font-size: .72rem; line-height: 1.4; margin-top: 7px; }
 
     /* ── STATS BAR ── */
-    .stats-row { display: flex; gap: 8px; margin-top: 14px; }
-    .stat-cell { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 11px 8px; text-align: center; }
+    .stats-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+    .stat-cell { min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 11px 6px; text-align: center; }
     .stat-num { font-size: 1.55rem; font-weight: 900; color: var(--primary-light); line-height: 1; }
     .stat-lbl { font-size: 0.65rem; color: var(--text-muted); margin-top: 3px; text-transform: uppercase; letter-spacing: .5px; }
 
@@ -240,6 +240,21 @@
     .court-timer { display: flex; justify-content: center; align-items: center; gap: 6px; width: fit-content; min-width: 88px; margin: -2px auto 10px; padding: 6px 12px; border-radius: 999px; color: #a7f3d0; background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3); font-size: .82rem; font-weight: 900; font-variant-numeric: tabular-nums; }
     .court-action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin-top: 12px; }
     .court-action-grid .btn { min-width: 0; min-height: 46px; white-space: normal; }
+    .next-game-panel { margin-top: 12px; padding: 12px; border: 1px solid rgba(244,162,97,.42); border-radius: 11px; background: rgba(8,18,14,.48); }
+    .next-game-panel.is-compact { margin-top: 14px; padding-top: 11px; border-top-width: 2px; }
+    .next-game-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+    .next-game-header > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .next-game-header strong { color: var(--accent); font-size: .82rem; line-height: 1.35; }
+    .next-game-header span:not(.court-skill-badge) { color: var(--text-muted); font-size: .68rem; }
+    .next-teams { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: stretch; }
+    .next-team { min-width: 0; padding: 9px 10px; border-radius: 8px; background: rgba(0,0,0,.24); }
+    .next-team-label { color: var(--primary-light); font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; margin-bottom: 5px; }
+    .next-player-name { overflow-wrap: anywhere; color: #fff; font-size: .82rem; font-weight: 700; line-height: 1.45; }
+    .next-vs { align-self: center; color: var(--accent); font-size: .68rem; font-weight: 900; }
+    .next-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 10px; }
+    .next-actions .btn { min-width: 0; min-height: 44px; padding: 10px 12px; white-space: normal; font-size: .8rem; }
+    .next-empty { margin-top: 12px; padding: 11px; border: 1px dashed rgba(244,162,97,.35); border-radius: 10px; color: var(--text-muted); font-size: .78rem; text-align: center; }
+    .next-empty > span { display: block; }
 
     /* Winner section */
     .winner-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08); }
@@ -258,6 +273,7 @@
     .avail-card { background: var(--wait-bg); border: 1px solid var(--wait-border); border-radius: 13px; padding: 14px; margin-bottom: 12px; }
     .avail-header { font-size: 0.8rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--wait-text); margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     .avail-header .on-court-tag { background: rgba(160,144,255,.15); border: 1px solid #5040a0; color: #a090ff; padding: 2px 9px; border-radius: 12px; font-size: 0.7rem; }
+    .avail-header .up-next-count { background: rgba(244,162,97,.12); border-color: rgba(244,162,97,.45); color: #ffd58a; }
     .avail-chips { display: flex; flex-wrap: wrap; gap: 7px; }
     .avail-chip { background: #252540; border: 1px solid var(--wait-border); border-radius: 20px; padding: 7px 14px; font-size: 0.88rem; font-weight: 600; color: var(--wait-text); }
     .no-avail { font-size: 0.88rem; color: var(--text-muted); }
@@ -500,6 +516,7 @@
       .access-tab { text-align: center; }
     }
     @media (max-width: 620px) {
+      .stats-row { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
       .player-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
       .player-name { grid-column: 1; grid-row: 1; }
       .player-meta { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; padding-top: 2px; padding-right: 42px; }
@@ -517,6 +534,7 @@
       .court-skill-badge { white-space: normal; }
       .staged-callout { align-items: flex-start; flex-direction: column; }
       .staged-callout span { text-align: left; }
+      .next-game-header { align-items: flex-start; }
       .manual-builder { grid-template-columns: 1fr; }
       .manual-vs { justify-content: center; min-height: 24px; }
       .lb-header-row { align-items: flex-start; gap: 9px; flex-direction: column; }
@@ -527,6 +545,8 @@
       .session-top { flex-wrap: wrap; }
       .session-actions { grid-template-columns: 1fr; }
       .stats-row { display: grid; grid-template-columns: 1fr 1fr; }
+      .next-teams { gap: 5px; }
+      .next-team { padding: 8px; }
       .team-box { padding: 9px; }
       .teams-row { gap: 5px; }
       .vs-col { padding-inline: 1px; }
@@ -633,15 +653,16 @@
     </div>
     <div class="stats-row">
       <div class="stat-cell"><div class="stat-num" id="sTotal">0</div><div class="stat-lbl">Players</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sOnCourt">0</div><div class="stat-lbl">Assigned</div></div>
+      <div class="stat-cell"><div class="stat-num" id="sOnCourt">0</div><div class="stat-lbl">On Court</div></div>
+      <div class="stat-cell"><div class="stat-num" id="sUpNext">0</div><div class="stat-lbl">Up Next</div></div>
       <div class="stat-cell"><div class="stat-num" id="sAvail">0</div><div class="stat-lbl">Available</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sActive">0</div><div class="stat-lbl">In Play</div></div>
+      <div class="stat-cell"><div class="stat-num" id="sActive">0</div><div class="stat-lbl">Active Courts</div></div>
     </div>
   </div>
 
   <!-- Action Buttons -->
   <div class="action-row" id="actionControls">
-    <button class="btn btn-accent btn-block" style="flex:2" onclick="fillAvailableCourts()">⏭ Stage Available Courts</button>
+    <button class="btn btn-accent btn-block" style="flex:2" onclick="fillAvailableCourts()">⏭ Prepare Courts &amp; Up Next</button>
     <button class="btn btn-reset btn-block host-only" data-host-only style="flex:1" onclick="resetAllCourts()">↺ Reset All</button>
   </div>
 

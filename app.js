@@ -1,7 +1,7 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
-var APP_VERSION = '3.7.0';
+var APP_VERSION = '3.8.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -45,7 +45,7 @@ var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v4';
+var ROLE_HELP_VERSION = 'v5';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -68,23 +68,25 @@ var ROLE_HELP = {
     copy: 'Use this access type to manage only your own player entry.',
     steps: [
       'Choose your roster name, or add yourself, then select Beginner or Intermediate & Above.',
-      'Tap Enable Alerts for a free device alert while this app is open or running in the background. A fully closed app cannot receive free alerts.',
-      'Use Take a Break when sitting out and I’m Ready when you want to return.',
-      'Use My Skill to update your level; it affects future assignments only.',
-      'Court badges show who each court is for. Standings and live games update automatically.',
-      'Up Next shows staged games. When the controller starts yours, the court timer begins.',
-      'Open Session Summary & Export to review or download the session results.',
-      'Tap Leave to check out. You cannot check out while you are in an active game.'
+      'Use the Available, On Court, Up Next, and Taking a Break labels to understand your current status.',
+      'In an Up Next panel, check your court, partner, opponents, and the court’s skill designation.',
+      'Tap Enable Alerts. Your free Up Next alert arrives as soon as the controller prepares your lineup while the app is open or running.',
+      'After the alert, prepare near the named court so play can begin promptly.',
+      'Game credit and the court timer begin only after the controller taps Start Game.',
+      'Use My Skill or Take a Break only when you are not on court or reserved Up Next.',
+      'If you need to leave or take a break while Up Next, ask a controller to edit or remove your prepared assignment first.',
+      'Follow standings, court timers, Game History, and Session Summary & Export for live and completed results.'
     ]
   },
   viewer: {
     title: 'View Only · How to Use',
     copy: 'Use this access type to follow the session without changing it.',
     steps: [
-      'Follow each live court and its Beginner, Intermediate & Above, or Any level badge.',
-      'Check Player Standings for games, wins, and win percentage.',
-      'Open Game History for completed games and Live Activity for recent controller actions.',
-      'Up Next lineups, court timers, custom court names, and the session summary are visible live.',
+      'Active matches and Up Next lineups are shown separately on each court.',
+      'Read court names, skill designations, teams, elapsed timers, and status badges.',
+      'Players shown Up Next are reserved and cannot be placed in another lineup.',
+      'After a winner is recorded, the prepared lineup moves into the main court view and waits for Start Game.',
+      'Follow Player Standings, Game History, Live Activity, and Session Summary & Export.',
       'The page updates automatically. Game controls are intentionally unavailable in View Only mode.'
     ]
   },
@@ -93,15 +95,17 @@ var ROLE_HELP = {
     copy: 'Use this access type to operate the shared rotation.',
     steps: [
       'Choose Controller Only, Existing Player, or New Player when joining. You keep full controller controls in every option.',
-      'If you are playing, open Player Tools to take a break, edit your skill, enable alerts, change player, or stop playing.',
-      'Add players and edit their skill levels in the Players section.',
-      'Under Court Settings, name each court and designate it as Any, Beginner, or Intermediate & Above.',
-      'Stage fair games for all available courts, or use Build Manually to choose the four players and teams.',
-      'Review the Up Next lineup, tap Start Game to begin its timer, then record the winning team.',
-      'Use Replace for a waiting eligible player and ⇄ to swap teams on the same court.',
-      'Use QR & Links to share Player Check-In, View Only, or Controller access.',
-      'Open Session Summary & Export for totals, durations, standings, and a CSV download.',
-      'Organizer only: Undo, Reset, Clear All, Reset Stats, and End Session.'
+      'Use Prepare Courts & Up Next to fill idle courts first, then prepare one next lineup for each active court.',
+      'Use Prepare Fair Next on one active court when its next lineup is empty.',
+      'Use Build Next Manually to choose the exact four players and teams.',
+      'Edit or remove a prepared lineup while the current match continues.',
+      'Prepared players are reserved and cannot be assigned, replaced, removed, checked out, or placed on break elsewhere.',
+      'Record the current winner and verify that its prepared lineup is promoted into the main court view.',
+      'Tap Start Game only when the physical court is ready. Credits, waiting metrics, and the timer update at that point; matchup history updates when a winner is recorded.',
+      'If a reserved player needs to leave or rest, edit or remove the Up Next lineup first.',
+      'Use custom court names, skill designations, Replace, team swaps, Player Tools, alerts, Session Summary, and CSV export as needed.',
+      'Use QR & Links to explain and share Player Check-In, View Only, or Controller access.',
+      'Organizer only: Undo, Reset All, Clear All Players, Reset Stats, and End Session.'
     ]
   }
 };
@@ -214,19 +218,24 @@ function findPlayerAssignment(state, playerId) {
   if (!state || !playerId) return null;
   for (var courtIndex = 0; courtIndex < state.courtStates.length; courtIndex += 1) {
     var court = state.courtStates[courtIndex];
-    if (court.status !== 'staged' && court.status !== 'playing') continue;
-    var team = court.teamA.indexOf(playerId) !== -1 ? 'A' : court.teamB.indexOf(playerId) !== -1 ? 'B' : null;
-    if (!team) continue;
-    var ownTeam = team === 'A' ? court.teamA : court.teamB;
-    var otherTeam = team === 'A' ? court.teamB : court.teamA;
-    return {
-      courtNum: court.courtNum,
-      courtName: Engine.courtDisplayName(court),
-      gameNum: court.status === 'staged' ? (court.gameNum || 0) + 1 : court.gameNum,
-      status: court.status,
-      partner: Engine.playerName(state, ownTeam.find(function (id) { return id !== playerId; })),
-      opponents: otherTeam.map(function (id) { return Engine.playerName(state, id); })
-    };
+    var assignments = [];
+    if (court.status === 'playing') assignments.push({ lineup: court, status: 'playing', gameNum: court.gameNum });
+    if (court.nextGame) assignments.push({ lineup: court.nextGame, status: 'next', gameNum: court.nextGame.gameNum });
+    for (var assignmentIndex = 0; assignmentIndex < assignments.length; assignmentIndex += 1) {
+      var assignment = assignments[assignmentIndex];
+      var team = assignment.lineup.teamA.indexOf(playerId) !== -1 ? 'A' : assignment.lineup.teamB.indexOf(playerId) !== -1 ? 'B' : null;
+      if (!team) continue;
+      var ownTeam = team === 'A' ? assignment.lineup.teamA : assignment.lineup.teamB;
+      var otherTeam = team === 'A' ? assignment.lineup.teamB : assignment.lineup.teamA;
+      return {
+        courtNum: court.courtNum,
+        courtName: Engine.courtDisplayName(court),
+        gameNum: assignment.gameNum,
+        status: assignment.status,
+        partner: Engine.playerName(state, ownTeam.find(function (id) { return id !== playerId; })),
+        opponents: otherTeam.map(function (id) { return Engine.playerName(state, id); })
+      };
+    }
   }
   return null;
 }
@@ -241,7 +250,7 @@ function showTurnAlert(assignment, deliveryKey) {
   if (deliveryKey) lastTurnAlertKey = deliveryKey;
   var alert = document.getElementById('turnAlert');
   if (!alert) return;
-  alert.querySelector('.turn-alert-title').textContent = assignment.status === 'staged'
+  alert.querySelector('.turn-alert-title').textContent = assignment.status === 'next'
     ? 'You’re up next on ' + assignment.courtName + '!'
     : 'You’re up on ' + assignment.courtName + '!';
   alert.querySelector('.turn-alert-copy').textContent = 'Partner: ' + assignment.partner + ' · vs ' + assignment.opponents.join(' & ');
@@ -252,7 +261,7 @@ function showTurnAlert(assignment, deliveryKey) {
 function showSystemTurnNotification(assignment, deliveryKey) {
   if (!assignment || !localStorage.getItem(alertsStorageKey())) return;
   if (!('Notification' in window) || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return;
-  var title = assignment.status === 'staged'
+  var title = assignment.status === 'next'
     ? 'You’re up next on ' + assignment.courtName + '!'
     : 'You’re up on ' + assignment.courtName + '!';
   var body = 'Partner: ' + assignment.partner + ' · vs ' + assignment.opponents.join(' & ');
@@ -857,7 +866,7 @@ function commitControllerParticipation(selection) {
 function openControllerParticipationPicker() {
   if (!isFullController() || !roomData || roomData.status !== 'active') return;
   if (linkedPlayerId && Engine.lockedIds(S).indexOf(linkedPlayerId) !== -1) {
-    showToast('Finish your active game before changing your player identity.');
+    showToast('Leave the active or Up Next lineup before changing your player identity.');
     return;
   }
   choosePlayerIdentity({
@@ -875,7 +884,7 @@ function stopControllerPlaying() {
   var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
   if (!player) return;
   if (Engine.lockedIds(S).indexOf(player.id) !== -1) {
-    showToast('Finish your active game before switching to Controller Only.');
+    showToast('Leave the active or Up Next lineup before switching to Controller Only.');
     return;
   }
   if (!confirm('Stop playing as ' + player.name + ' and remain Controller Only?')) return;
@@ -886,8 +895,10 @@ function openControllerPlayerTools() {
   if (!isFullController()) return;
   var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
   if (!player) { openControllerParticipationPicker(); return; }
-  var onCourt = Engine.lockedIds(S).indexOf(player.id) !== -1;
-  var status = onCourt ? 'On court' : player.notAvailable ? 'Taking a break' : 'Ready to play';
+  var onCourt = Engine.activeIds(S).indexOf(player.id) !== -1;
+  var upNext = Engine.nextIds(S).indexOf(player.id) !== -1;
+  var assigned = onCourt || upNext;
+  var status = onCourt ? 'On court' : upNext ? 'Up Next' : player.notAvailable ? 'Taking a break' : 'Ready to play';
   var disabled = sharedBusy || !navigator.onLine || !roomData || roomData.status !== 'active';
   var modal = openModal({
     title: 'Player Tools · ' + player.name,
@@ -895,13 +906,13 @@ function openControllerPlayerTools() {
     body: '<div class="identity-summary"><span>Playing as</span><strong>' + esc(player.name) + '</strong></div>'
       + '<div class="player-tool-summary"><span>⭐ ' + esc(Engine.skillLevelLabel(player.skillRating)) + '</span><span>' + esc(status) + '</span></div>'
       + '<div class="player-tools-grid">'
-      + '<button class="btn ' + (player.notAvailable ? 'btn-primary' : 'btn-accent') + '" id="controllerAvailabilityBtn" ' + (disabled || onCourt ? 'disabled' : '') + '>' + (player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
-      + '<button class="btn btn-ghost" id="controllerSkillBtn" ' + (disabled ? 'disabled' : '') + '>⭐ Edit My Skill</button>'
+      + '<button class="btn ' + (player.notAvailable ? 'btn-primary' : 'btn-accent') + '" id="controllerAvailabilityBtn" ' + (disabled || assigned ? 'disabled' : '') + '>' + (player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
+      + '<button class="btn btn-ghost" id="controllerSkillBtn" ' + (disabled || assigned ? 'disabled' : '') + '>⭐ Edit My Skill</button>'
       + '<button class="btn btn-ghost alert-status-' + esc(alertStatus) + '" id="controllerAlertsBtn" ' + (alertStatus === 'enabling' ? 'disabled' : '') + '>' + esc(alertButtonCopy()) + '</button>'
-      + '<button class="btn btn-ghost" id="controllerChangePlayerBtn" ' + (disabled || onCourt ? 'disabled' : '') + '>⇄ Change Player</button>'
-      + '<button class="btn btn-danger" id="controllerStopPlayingBtn" ' + (disabled || onCourt ? 'disabled' : '') + '>Stop Playing</button>'
+      + '<button class="btn btn-ghost" id="controllerChangePlayerBtn" ' + (disabled || assigned ? 'disabled' : '') + '>⇄ Change Player</button>'
+      + '<button class="btn btn-danger" id="controllerStopPlayingBtn" ' + (disabled || assigned ? 'disabled' : '') + '>Stop Playing</button>'
       + '</div>'
-      + (onCourt ? '<div class="field-help">Finish the active game before taking a break, changing player, stopping, or leaving.</div>' : '')
+      + (assigned ? '<div class="field-help">' + (upNext ? 'Ask a controller to edit or remove your Up Next lineup before changing skill, taking a break, changing player, stopping, or leaving.' : 'Finish the active game before changing skill, taking a break, changing player, stopping, or leaving.') + '</div>' : '')
       + '<div class="free-alert-note">Free alerts require this app to remain open or running. A fully closed app cannot receive alerts.</div>'
   });
   document.getElementById('controllerAvailabilityBtn').onclick = function () { closeModal(); toggleMyAvailability(); };
@@ -1195,7 +1206,7 @@ function addPlayer() {
 function removePlayer(index) {
   var player = S.players[index];
   if (!player) return;
-  if (Engine.lockedIds(S).indexOf(player.id) !== -1) { showToast(player.name + ' is in an active game.'); return; }
+  if (Engine.lockedIds(S).indexOf(player.id) !== -1) { showToast(player.name + ' is on court or reserved Up Next.'); return; }
   if (!confirm('Remove "' + player.name + '" from the list?')) return;
   runAction('player_removed', function (state) {
     var target = state.players.find(function (item) { return item.id === player.id; });
@@ -1223,7 +1234,7 @@ function toggleNotAvailable(index) {
   runAction('availability_changed', function (state) {
     var target = Engine.playerById(state, player.id);
     if (!target) return { changed: false, reason: 'Player not found.' };
-    if (Engine.lockedIds(state).indexOf(target.id) !== -1) return { changed: false, reason: target.name + ' is on court.' };
+    if (Engine.lockedIds(state).indexOf(target.id) !== -1) return { changed: false, reason: target.name + ' is on court or reserved Up Next.' };
     target.notAvailable = !target.notAvailable;
     return {
       changed: true,
@@ -1236,8 +1247,8 @@ function toggleNotAvailable(index) {
 function setCourts(count) {
   count = Number(count);
   if (count === S.courts) return;
-  if (count < S.courts && S.courtStates.slice(count).some(function (court) { return court.status === 'playing' || court.status === 'staged'; })) {
-    if (!confirm('Reducing courts will remove active or staged games on those courts. Continue?')) return;
+  if (count < S.courts && S.courtStates.slice(count).some(function (court) { return court.status === 'playing' || court.nextGame; })) {
+    if (!confirm('Reducing courts will remove active or Up Next games on those courts. Continue?')) return;
   }
   runAction('courts_changed', function (state) {
     Engine.initCourtStates(state, count);
@@ -1288,42 +1299,39 @@ function setCourtSkillGroup(index, group) {
 }
 
 function generateForCourt(index) {
-  runAction('game_staged', function (state) {
-    var result = Engine.stageGame(state, index);
+  runAction('next_game_prepared', function (state) {
+    var result = Engine.prepareNextGame(state, index);
     if (!result.changed) return result;
-    var names = result.court.teamA.concat(result.court.teamB).map(function (id) { return Engine.playerName(state, id); });
+    var names = result.nextGame.teamA.concat(result.nextGame.teamB).map(function (id) { return Engine.playerName(state, id); });
     return {
       changed: true,
-      message: Engine.courtDisplayName(result.court) + ' — Game ' + ((result.court.gameNum || 0) + 1) + ' is up next.',
-      summary: 'Staged ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
+      message: Engine.courtDisplayName(result.court) + ' — Game ' + result.nextGame.gameNum + ' is prepared Up Next.',
+      summary: 'Prepared Up Next on ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
     };
   });
 }
 
 function fillAvailableCourts() {
-  runAction('games_staged', function (state) {
+  runAction('courts_and_next_prepared', function (state) {
     var filled = [];
     var skipped = [];
-    Engine.courtFillOrder(state).forEach(function (index) {
-      var court = state.courtStates[index];
-      if (court.status !== 'playing' && court.status !== 'staged') {
-        var result = Engine.stageGame(state, index);
-        if (result.changed) filled.push(Engine.courtDisplayName(result.court));
-        else skipped.push(result.reason);
-      }
+    Engine.courtPreparationOrder(state).forEach(function (index) {
+      var result = Engine.prepareNextGame(state, index);
+      if (result.changed) filled.push(Engine.courtDisplayName(result.court));
+      else skipped.push(result.reason);
     });
-    if (!filled.length) return { changed: false, reason: skipped[0] || 'All courts already have active or staged games.' };
+    if (!filled.length) return { changed: false, reason: skipped[0] || 'Every court already has an active or Up Next lineup.' };
     return {
       changed: true,
-      message: 'Staged ' + filled.length + ' fair game' + (filled.length === 1 ? '' : 's') + '.',
-      summary: 'Staged games for ' + filled.join(', ')
+      message: 'Prepared ' + filled.length + ' fair lineup' + (filled.length === 1 ? '' : 's') + '.',
+      summary: 'Prepared courts and Up Next for ' + filled.join(', ')
     };
   });
 }
 
 function startStagedGame(index) {
   runAction('game_started', function (state) {
-    var result = Engine.startStagedGame(state, index);
+    var result = Engine.startNextGame(state, index);
     if (!result.changed) return result;
     var names = result.court.teamA.concat(result.court.teamB).map(function (id) { return Engine.playerName(state, id); });
     return {
@@ -1336,19 +1344,19 @@ function startStagedGame(index) {
 
 function cancelStagedGame(index) {
   var court = S.courtStates[index];
-  if (!court || court.status !== 'staged') return;
-  if (!confirm('Remove the staged lineup from ' + Engine.courtDisplayName(court) + '?')) return;
-  runAction('game_stage_cancelled', function (state) {
+  if (!court || !court.nextGame) return;
+  if (!confirm('Remove the Up Next lineup from ' + Engine.courtDisplayName(court) + '?')) return;
+  runAction('next_game_removed', function (state) {
     var targetName = Engine.courtDisplayName(state.courtStates[index]);
-    var result = Engine.clearStagedGame(state, index);
+    var result = Engine.clearNextGame(state, index);
     if (!result.changed) return result;
-    return { changed: true, message: targetName + ' lineup removed.', summary: 'Removed staged game from ' + targetName };
+    return { changed: true, message: targetName + ' Up Next lineup removed.', summary: 'Removed Up Next lineup from ' + targetName };
   });
 }
 
 function openManualMatchBuilder(index) {
   var court = S.courtStates[index];
-  if (!court || court.status === 'playing') { showToast('Finish the active game before building another match.'); return; }
+  if (!court) return;
   var eligibleIds = Engine.eligibleIdsForManualCourt(S, index);
   if (eligibleIds.length < 4) {
     showToast(Engine.courtDisplayName(court) + ' needs four available eligible players.');
@@ -1357,7 +1365,7 @@ function openManualMatchBuilder(index) {
   var players = eligibleIds.map(function (id) { return Engine.playerById(S, id); }).filter(Boolean).sort(function (a, b) {
     return a.games - b.games || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   });
-  var current = court.status === 'staged' ? court.teamA.concat(court.teamB) : ['', '', '', ''];
+  var current = court.nextGame ? court.nextGame.teamA.concat(court.nextGame.teamB) : ['', '', '', ''];
   var optionHtml = '<option value="">Choose player…</option>' + players.map(function (player) {
     return '<option value="' + esc(player.id) + '">' + esc(player.name) + ' · ' + esc(Engine.skillLevelLabel(player.skillRating)) + ' · ' + player.games + 'G</option>';
   }).join('');
@@ -1365,8 +1373,8 @@ function openManualMatchBuilder(index) {
     return '<label class="manual-slot"><span>' + label + '</span><select class="modal-field manual-player-select" aria-label="' + team + ' ' + label + '" data-slot="' + slotIndex + '">' + optionHtml + '</select></label>';
   }
   var modal = openModal({
-    title: 'Build Match · ' + Engine.courtDisplayName(court),
-    copy: 'Choose four different available players. The lineup is staged first; game credits and the timer begin only when you tap Start Game.',
+    title: 'Build Next Match · ' + Engine.courtDisplayName(court),
+    copy: 'Choose four different available players and teams. They are reserved immediately; game credits and the timer begin only when Start Game is tapped.',
     body: '<div class="manual-builder"><div class="manual-team"><strong>🟢 Team A</strong>' + slot('Team A', 'Player 1', 0) + slot('Team A', 'Player 2', 1)
       + '</div><div class="manual-vs">VS</div><div class="manual-team"><strong>🔵 Team B</strong>' + slot('Team B', 'Player 1', 2) + slot('Team B', 'Player 2', 3)
       + '</div></div><div class="manual-builder-note" id="manualBuilderNote">Choose four different players.</div>'
@@ -1379,14 +1387,14 @@ function openManualMatchBuilder(index) {
   cancel.onclick = closeModal;
   var stage = document.createElement('button');
   stage.className = 'btn btn-primary';
-  stage.textContent = court.status === 'staged' ? 'Update Staged Game' : 'Stage Match';
+  stage.textContent = court.nextGame ? 'Update Up Next' : 'Prepare Up Next';
   function selection() { return selects.map(function (select) { return select.value; }); }
   function validate() {
     var chosen = selection();
     var valid = chosen.every(Boolean) && new Set(chosen).size === 4;
     stage.disabled = !valid;
     document.getElementById('manualBuilderNote').textContent = valid
-      ? 'Ready to stage. No game credit is added yet.'
+      ? 'Ready to prepare. No game credit is added yet.'
       : chosen.every(Boolean) ? 'Each player can be selected only once.' : 'Choose four different players.';
   }
   selects.forEach(function (select) { select.addEventListener('change', validate); });
@@ -1395,14 +1403,14 @@ function openManualMatchBuilder(index) {
     var chosen = selection();
     if (stage.disabled) return;
     stage.disabled = true;
-    runAction('manual_game_staged', function (state) {
-      var result = Engine.stageManualGame(state, index, chosen.slice(0, 2), chosen.slice(2, 4));
+    runAction('manual_next_game_prepared', function (state) {
+      var result = Engine.prepareManualNextGame(state, index, chosen.slice(0, 2), chosen.slice(2, 4));
       if (!result.changed) return result;
       var names = chosen.map(function (id) { return Engine.playerName(state, id); });
       return {
         changed: true,
-        message: Engine.courtDisplayName(result.court) + ' manual lineup is up next.',
-        summary: 'Manually staged ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
+        message: Engine.courtDisplayName(result.court) + ' manual Up Next lineup is ready.',
+        summary: 'Prepared manual Up Next on ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
       };
     }).then(function (result) {
       if (result && result.changed) closeModal();
@@ -1565,6 +1573,10 @@ function openSkillPicker(playerId) {
   if (!isFullController() && !isSelfEdit) return;
   var player = Engine.playerById(S, playerId);
   if (!player) return;
+  if (Engine.lockedIds(S).indexOf(player.id) !== -1) {
+    showToast(player.name + ' must leave the active or Up Next lineup before changing skill.');
+    return;
+  }
   var selectedRating = player.skillRating;
   var modal = openModal({
     title: 'Skill level · ' + player.name,
@@ -1600,6 +1612,7 @@ function openSkillPicker(playerId) {
       }
       var target = Engine.playerById(state, playerId);
       if (!target) return { changed: false, reason: 'Player not found.' };
+      if (Engine.lockedIds(state).indexOf(target.id) !== -1) return { changed: false, reason: target.name + ' is on court or reserved Up Next.' };
       if (target.skillRating === selectedRating && target.skillLevelConfirmed) {
         return { changed: false, reason: 'Skill level is already ' + Engine.skillLevelLabel(selectedRating) + '.' };
       }
@@ -1727,9 +1740,9 @@ function renderAccessQr(mode) {
   document.getElementById('accessLinkLabel').textContent = accessLabel(mode) + ' link';
   document.getElementById('accessLinkUrl').textContent = url;
   var summaries = {
-    player: 'Players can add or choose their own name, select a level, check in, take a break, edit their level, and enable free turn alerts while the app is running.',
-    viewer: 'Viewers can follow courts, standings, history, and activity, but cannot change the game.',
-    controller: 'Controllers choose Controller Only, Existing Player, or New Player, then keep full controls for players, courts, rotations, winners, replacements, and team swaps.'
+    player: 'Players can enroll or check in, manage their own availability and level, see active and Up Next teams, and receive a free alert as soon as their lineup is prepared while the app is running.',
+    viewer: 'Viewers can follow active matches, reserved Up Next lineups, timers, standings, history, activity, and summaries, but cannot change the game.',
+    controller: 'Controllers can prepare, manually edit, or remove one Up Next lineup per court while matches continue, then record the winner and start the promoted game when the court is ready.'
   };
   document.getElementById('accessRoleSummary').textContent = summaries[mode];
   document.getElementById('accessCopyBtn').onclick = function () { copyShareLink(mode); };
@@ -1748,7 +1761,7 @@ function openAccessLinks() {
   if (!roomId || !isFullController()) return;
   var modal = openModal({
     title: 'QR codes & access links',
-    copy: 'Choose what the link opens. Controller links keep full game controls and let each controller decide whether they are also playing.',
+    copy: 'Choose what the link opens. Every role can see active and prepared Up Next games; only controller links can change lineups or game progress.',
     body: '<div class="access-tabs">'
       + '<button class="access-tab" type="button" data-access-mode="player">✓ Player Check-In</button>'
       + '<button class="access-tab" type="button" data-access-mode="viewer">👁 View Only</button>'
@@ -1756,7 +1769,7 @@ function openAccessLinks() {
       + '<div class="qr-shell"><canvas id="accessQrCanvas" class="qr-canvas" aria-label="QR code"></canvas>'
       + '<div class="qr-link-label" id="accessLinkLabel"></div><div class="qr-url" id="accessLinkUrl"></div></div>'
       + '<div class="access-role-summary" id="accessRoleSummary"></div>'
-      + '<div class="access-note">Player link guests can choose an existing roster name or add themselves. Anyone with the controller link can control the game. These links are not password-protected roles.</div>'
+      + '<div class="access-note">Player link guests can choose an existing roster name or add themselves. Up Next players are reserved until a controller edits, removes, or starts that lineup. Anyone with the controller link can control the game. These links are not password-protected roles.</div>'
   });
   modal.body.querySelectorAll('[data-access-mode]').forEach(function (button) {
     button.onclick = function () { renderAccessQr(button.dataset.accessMode); };
@@ -2046,13 +2059,11 @@ function renderPlayerList() {
   var element = document.getElementById('playerList');
   if (!S.players.length) { element.innerHTML = '<div class="empty-hint">No players added yet. Enter names above.</div>'; return; }
   var locked = new Set(Engine.lockedIds(S));
-  var staged = new Set();
-  S.courtStates.forEach(function (court) {
-    if (court.status === 'staged') court.teamA.concat(court.teamB).forEach(function (id) { staged.add(id); });
-  });
+  var onCourt = new Set(Engine.activeIds(S));
+  var upNext = new Set(Engine.nextIds(S));
   element.innerHTML = S.players.map(function (player, index) {
     var isLocked = locked.has(player.id);
-    var badges = (isLocked ? '<span class="locked-badge">' + (staged.has(player.id) ? '⏭ Up Next' : '🔒 On Court') + '</span>' : player.notAvailable ? '<span class="na-tag">⛔ Not Available</span>' : '')
+    var badges = (isLocked ? '<span class="locked-badge">' + (upNext.has(player.id) ? '⏭ Up Next' : onCourt.has(player.id) ? '🔒 On Court' : '🔒 Assigned') + '</span>' : player.notAvailable ? '<span class="na-tag">⏸ Taking a Break</span>' : '')
       + (player.checkedIn ? '<span class="checkin-badge">✓ Checked In</span>' : '')
       + (player.id === linkedPlayerId ? '<span class="you-badge">You</span>' : '')
       + (!isLocked && !player.notAvailable && player.wins ? '<span class="wins-badge">🏆 ' + player.wins + 'W</span>' : '')
@@ -2086,7 +2097,7 @@ function renderCourtSkillGroups() {
   var element = document.getElementById('courtSkillGroups');
   if (!element) return;
   var editable = isFullController();
-  element.innerHTML = '<div class="court-groups-heading"><span>Court Names & Skill</span><small>Used for the next staged game</small></div>'
+  element.innerHTML = '<div class="court-groups-heading"><span>Court Names & Skill</span><small>Changes apply to future lineups; prepared games keep their designation</small></div>'
     + S.courtStates.map(function (court, index) {
       var label = Engine.skillGroupLabel(court.skillGroup);
       if (!editable) {
@@ -2106,7 +2117,8 @@ function syncCourtButtons() {
 
 function updateStats() {
   document.getElementById('sTotal').textContent = S.players.length;
-  document.getElementById('sOnCourt').textContent = Engine.lockedIds(S).length;
+  document.getElementById('sOnCourt').textContent = Engine.activeIds(S).length;
+  document.getElementById('sUpNext').textContent = Engine.nextIds(S).length;
   document.getElementById('sAvail').textContent = Engine.availableIds(S).length;
   document.getElementById('sActive').textContent = S.courtStates.filter(function (court) { return court.status === 'playing'; }).length;
 }
@@ -2115,10 +2127,12 @@ function renderAvailableSection() {
   var element = document.getElementById('availableSection');
   if (!S.players.length) { element.innerHTML = ''; return; }
   var available = Engine.availableIds(S).map(function (id) { return Engine.playerById(S, id); });
-  var lockedCount = Engine.lockedIds(S).length;
+  var onCourtCount = Engine.activeIds(S).length;
+  var upNextCount = Engine.nextIds(S).length;
   var unavailable = S.players.filter(function (player) { return player.notAvailable; });
   var html = '<div class="avail-card"><div class="avail-header">✅ Available (' + available.length + ')';
-  if (lockedCount) html += '<span class="on-court-tag">🔒 Assigned: ' + lockedCount + '</span>';
+  if (onCourtCount) html += '<span class="on-court-tag">🔒 On Court: ' + onCourtCount + '</span>';
+  if (upNextCount) html += '<span class="on-court-tag up-next-count">⏭ Up Next: ' + upNextCount + '</span>';
   if (unavailable.length) html += '<span class="na-tag">⛔ Not Available: ' + unavailable.length + '</span>';
   html += '</div>';
   html += available.length ? '<div class="avail-chips">' + available.map(function (player) { return '<div class="avail-chip">' + esc(player.name) + '</div>'; }).join('') + '</div>'
@@ -2129,7 +2143,7 @@ function renderAvailableSection() {
 }
 
 function statusBadgeHtml(status) {
-  if (status === 'staged') return '<span class="status-badge status-staged">⏭ Up Next</span>';
+  if (status === 'next') return '<span class="status-badge status-staged">⏭ Up Next</span>';
   if (status === 'playing') return '<span class="status-badge status-playing">● In Progress</span>';
   if (status === 'done') return '<span class="status-badge status-done">✓ Done</span>';
   return '<span class="status-badge status-empty">Empty</span>';
@@ -2140,7 +2154,7 @@ function teamsHtml(court, courtIndex, showWinner) {
   function row(id, team, playerIndex) {
     var player = Engine.playerById(S, id);
     var buttons = '';
-    if (!showWinner) {
+    if (!showWinner && isFullController()) {
       if (pending) {
         if (swapState.team === team && swapState.playerIndex === playerIndex) buttons = '<button class="swap-btn is-active" onclick="startSwap(' + courtIndex + ',\'' + team + '\',' + playerIndex + ')">✕ Cancel</button>';
         else if (swapState.team !== team) buttons = '<button class="swap-target-btn" onclick="executeSwap(' + courtIndex + ',\'' + team + '\',' + playerIndex + ')">⇄ Swap here</button>';
@@ -2161,37 +2175,61 @@ function teamsHtml(court, courtIndex, showWinner) {
     + row(court.teamB[0], 'B', 0) + row(court.teamB[1], 'B', 1) + '</div></div>';
 }
 
+function nextTeamsHtml(nextGame) {
+  function names(ids, team) {
+    return '<div class="next-team"><div class="next-team-label">' + (team === 'A' ? '🟢 Team A' : '🔵 Team B') + '</div>'
+      + ids.map(function (id) { return '<div class="next-player-name">' + esc(Engine.playerName(S, id)) + '</div>'; }).join('') + '</div>';
+  }
+  return '<div class="next-teams">' + names(nextGame.teamA, 'A') + '<div class="next-vs">VS</div>' + names(nextGame.teamB, 'B') + '</div>';
+}
+
+function renderNextGamePanel(court, index, compact) {
+  var next = court.nextGame;
+  if (!next) {
+    if (!isFullController()) return '<div class="next-empty">Next game not prepared yet.</div>';
+    return '<div class="next-empty"><span>Next game not prepared yet.</span><div class="court-action-grid">'
+      + '<button class="btn btn-accent" onclick="generateForCourt(' + index + ')">⏭ Prepare Fair Next</button>'
+      + '<button class="btn btn-ghost" onclick="openManualMatchBuilder(' + index + ')">✋ Build Next Manually</button></div></div>';
+  }
+  var actions = isFullController() ? '<div class="next-actions">'
+    + (court.status === 'playing' ? '' : '<button class="btn btn-accent" onclick="startStagedGame(' + index + ')">▶ Start Game</button>')
+    + '<button class="btn btn-ghost" onclick="openManualMatchBuilder(' + index + ')">✎ Edit Match</button>'
+    + '<button class="btn btn-ghost" onclick="cancelStagedGame(' + index + ')">✕ Remove</button></div>' : '';
+  return '<section class="next-game-panel' + (compact ? ' is-compact' : '') + '" aria-label="Up Next on ' + esc(Engine.courtDisplayName(court)) + '">'
+    + '<div class="next-game-header"><div><strong>⏭ Up Next · Game ' + next.gameNum + '</strong><span>' + (next.source === 'manual' ? 'Manual lineup' : 'Fair lineup')
+    + (court.status === 'playing' ? ' · Reserved now' : ' · Timer and credits start with Start Game') + '</span></div>'
+    + '<span class="court-skill-badge group-' + esc(next.skillGroup) + '">' + esc(Engine.skillGroupLabel(next.skillGroup)) + '</span></div>'
+    + nextTeamsHtml(next) + actions + '</section>';
+}
+
 function renderCourtCard(court, index) {
   var color = Math.min(court.courtNum, 6);
   var body;
   if (court.status === 'playing') {
     body = '<div class="court-timer" aria-label="Elapsed game time">⏱ <span data-court-timer data-started-at="' + (court.startedAt || '') + '">' + (court.startedAt ? formatDuration(Date.now() - court.startedAt) : '—') + '</span></div>'
-      + teamsHtml(court, index, false) + '<div class="winner-section"><div class="winner-lbl">⚡ Who won?</div><div class="winner-row">'
-      + '<button class="btn-team-a" onclick="recordWinner(' + index + ',\'A\')">🟢 Team A Won</button>'
-      + '<button class="btn-team-b" onclick="recordWinner(' + index + ',\'B\')">🔵 Team B Won</button></div></div>';
-  } else if (court.status === 'staged') {
-    body = '<div class="staged-callout"><strong>Game ' + ((court.gameNum || 0) + 1) + ' · Up Next</strong><span>The timer and game credits begin when Start Game is tapped.</span></div>'
-      + teamsHtml(court, index, true)
-      + '<div class="court-action-grid"><button class="btn btn-accent" onclick="startStagedGame(' + index + ')">▶ Start Game</button>'
-      + '<button class="btn btn-ghost" onclick="openManualMatchBuilder(' + index + ')">✎ Edit Match</button>'
-      + '<button class="btn btn-ghost" onclick="cancelStagedGame(' + index + ')">✕ Remove</button></div>';
+      + teamsHtml(court, index, false)
+      + (isFullController() ? '<div class="winner-section"><div class="winner-lbl">⚡ Who won?</div><div class="winner-row">'
+        + '<button class="btn-team-a" onclick="recordWinner(' + index + ',\'A\')">🟢 Team A Won</button>'
+        + '<button class="btn-team-b" onclick="recordWinner(' + index + ',\'B\')">🔵 Team B Won</button></div></div>' : '')
+      + renderNextGamePanel(court, index, true);
+  } else if (court.nextGame) {
+    body = renderNextGamePanel(court, index, false);
   } else if (court.status === 'done') {
-    body = teamsHtml(court, index, true) + '<div class="court-action-grid"><button class="btn btn-accent" onclick="generateForCourt(' + index + ')">⏭ Stage Fair Game</button>'
-      + '<button class="btn btn-ghost" onclick="openManualMatchBuilder(' + index + ')">✋ Build Manually</button></div>';
+    body = teamsHtml(court, index, true) + renderNextGamePanel(court, index, true);
   } else {
     var eligible = Engine.eligibleIdsForCourt(S, index).length;
     var eligibility = court.skillGroup === 'any' ? 'No game assigned yet.' : eligible + ' of 4 ' + Engine.skillGroupLabel(court.skillGroup) + ' players eligible.';
-    body = '<div class="court-empty-body">' + esc(eligibility) + '</div><div class="court-action-grid"><button class="btn btn-primary" onclick="generateForCourt(' + index + ')">⏭ Stage Fair Game</button>'
-      + '<button class="btn btn-ghost" onclick="openManualMatchBuilder(' + index + ')">✋ Build Manually</button></div>';
+    body = '<div class="court-empty-body">' + esc(eligibility) + '</div>' + renderNextGamePanel(court, index, true);
   }
-  return '<div class="court-card court-card-' + color + (court.status === 'playing' ? ' is-playing' : court.status === 'staged' ? ' is-staged' : court.status === 'done' ? ' is-done' : '') + '">'
-    + '<div class="court-card-header"><div class="court-name"><span class="court-dot dot-' + color + '"></span>' + esc(Engine.courtDisplayName(court)) + '</div><div class="court-header-badges"><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(Engine.skillGroupLabel(court.skillGroup)) + '</span>' + statusBadgeHtml(court.status) + '</div></div>' + body + '</div>';
+  var visibleStatus = court.status === 'playing' ? 'playing' : court.nextGame ? 'next' : court.status;
+  return '<div class="court-card court-card-' + color + (court.status === 'playing' ? ' is-playing' : court.nextGame ? ' is-staged' : court.status === 'done' ? ' is-done' : '') + '">'
+    + '<div class="court-card-header"><div class="court-name"><span class="court-dot dot-' + color + '"></span>' + esc(Engine.courtDisplayName(court)) + '</div><div class="court-header-badges"><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(Engine.skillGroupLabel(court.skillGroup)) + '</span>' + statusBadgeHtml(visibleStatus) + '</div></div>' + body + '</div>';
 }
 
 function renderCourtsSection() {
   var element = document.getElementById('courtsSection');
   if (!S.players.length) {
-    element.innerHTML = '<div class="no-games"><div class="no-games-icon">🏓</div><p>Add players, then tap<br><strong>⏭ Stage Available Courts</strong> to build the next games.</p></div>';
+    element.innerHTML = '<div class="no-games"><div class="no-games-icon">🏓</div><p>Add players, then tap<br><strong>⏭ Prepare Courts &amp; Up Next</strong> to build the next games.</p></div>';
     return;
   }
   element.innerHTML = S.courtStates.map(renderCourtCard).join('');
@@ -2250,7 +2288,7 @@ function renderLeaderboard() {
   card.style.display = 'block';
   var sorted = Engine.rankedPlayers(S);
   if (!sorted.some(function (player) { return player.games > 0; })) {
-    body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No games completed yet. Stage and start a game to begin tracking stats.</div></td></tr>'; return;
+    body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No games completed yet. Prepare and start a game to begin tracking stats.</div></td></tr>'; return;
   }
   body.innerHTML = sorted.map(function (player, index) {
     var rank = index + 1, percent = player.games ? Math.round(player.wins / player.games * 100) : 0;

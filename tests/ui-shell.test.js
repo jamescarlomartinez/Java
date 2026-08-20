@@ -89,7 +89,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v23-staged-games-and-session-tools/);
+  assert.match(serviceWorker, /pickleball-v24-per-court-next-lineups/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -132,7 +132,7 @@ test('legacy numeric activity does not expose obsolete numeric levels', () => {
 test('two-level court designation controls and eligibility badges are present', () => {
   assert.match(html, /id="courtSkillGroups"/);
   assert.match(app, /function setCourtSkillGroup/);
-  assert.match(app, /Engine\.courtFillOrder/);
+  assert.match(app, /Engine\.courtPreparationOrder/);
   assert.match(app, /Engine\.eligibleIdsForCourt/);
   assert.match(app, /court-skill-badge/);
   assert.match(app, /Intermediate & Above/);
@@ -147,6 +147,10 @@ test('each shared role has context help and QR access summaries', () => {
   assert.match(app, /❓ How to Use/);
   assert.match(app, /pickleballHelpSeen_/);
   assert.match(app, /accessRoleSummary/);
+  assert.match(app, /var ROLE_HELP_VERSION = 'v5'/);
+  assert.match(app, /Prepare Courts & Up Next/);
+  assert.match(app, /prepared lineup moves into the main court view/);
+  assert.match(app, /ask a controller to edit or remove your prepared assignment/i);
   assert.match(html, /\.help-steps/);
 });
 
@@ -156,6 +160,8 @@ test('player alerts use explicit permission and free local system notifications'
   assert.match(app, /function enablePlayerAlerts/);
   assert.match(app, /Notification\.requestPermission\(\)/);
   assert.match(app, /registration\.showNotification/);
+  assert.match(app, /assignment\.status === 'next'/);
+  assert.match(app, /before\.courtNum === after\.courtNum && before\.gameNum === after\.gameNum/);
   assert.match(app, /localStorage\.setItem\(alertsStorageKey\(\), '1'\)/);
   assert.match(app, /fully closed app cannot receive/);
   assert.doesNotMatch(app, /pushSubscriptions|fbMessaging|FCM_VAPID_KEY/);
@@ -163,12 +169,19 @@ test('player alerts use explicit permission and free local system notifications'
   assert.match(serviceWorker, /notificationclick/);
 });
 
-test('staged games, timers, manual builder, court names, and session export are exposed responsively', () => {
-  assert.match(html, /Stage Available Courts/);
+test('per-court Up Next, timers, manual builder, court names, and session export are exposed responsively', () => {
+  assert.match(html, /Prepare Courts &amp; Up Next/);
   assert.match(app, /function startStagedGame/);
-  assert.match(app, /Engine\.stageGame/);
+  assert.match(app, /Engine\.prepareNextGame/);
   assert.match(app, /function openManualMatchBuilder/);
-  assert.match(app, /Engine\.stageManualGame/);
+  assert.match(app, /Engine\.prepareManualNextGame/);
+  assert.match(app, /function renderNextGamePanel/);
+  assert.match(app, /Next game not prepared yet/);
+  assert.match(app, /Prepare Fair Next/);
+  assert.match(app, /Build Next Manually/);
+  assert.match(html, /id="sUpNext"/);
+  assert.match(html, /\.next-game-panel/);
+  assert.match(html, /\.next-actions[^}]*grid-template-columns/);
   assert.match(html, /\.manual-builder\s*\{[^}]*grid-template-columns/);
   assert.match(html, /@media \(max-width:\s*480px\)[\s\S]*\.manual-builder\s*\{\s*grid-template-columns:\s*1fr/);
   assert.match(app, /function renameCourt/);
