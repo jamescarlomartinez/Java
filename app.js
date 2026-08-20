@@ -1840,8 +1840,8 @@ function renderMatchmakingMode() {
   });
   var help = document.getElementById('matchmakingHelp');
   if (help) help.textContent = S.matchmakingMode === 'balanced'
-    ? 'Balances team skill levels after game-count and waiting fairness.'
-    : 'Prioritizes fair play counts, waiting time, and fresh partners.';
+    ? 'Balances team skill after fair game counts, then mixes partners and opponents.'
+    : 'Prioritizes fair game counts, then new partners and opponents before waiting-time tie-breakers.';
   var readOnly = document.getElementById('matchmakingReadOnly');
   if (readOnly) readOnly.textContent = S.matchmakingMode === 'balanced' ? '⭐ Skill Balanced' : '🤝 Social Fair';
 }

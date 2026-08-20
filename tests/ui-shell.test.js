@@ -31,6 +31,7 @@ test('QR library loads before the application and rotation-style controls are pr
   assert.ok(html.indexOf('./vendor/qrcode.js') < html.indexOf('./app.js'));
   assert.match(html, /data-matchmaking-mode="social"/);
   assert.match(html, /data-matchmaking-mode="balanced"/);
+  assert.match(app, /new partners and opponents before waiting-time tie-breakers/);
 });
 
 test('standings render before history and live activity', () => {
