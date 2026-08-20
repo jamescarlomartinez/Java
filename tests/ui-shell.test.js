@@ -89,7 +89,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v22-complete-player-mixing/);
+  assert.match(serviceWorker, /pickleball-v23-staged-games-and-session-tools/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -161,4 +161,22 @@ test('player alerts use explicit permission and free local system notifications'
   assert.doesNotMatch(app, /pushSubscriptions|fbMessaging|FCM_VAPID_KEY/);
   assert.doesNotMatch(serviceWorker, /firebase-messaging|onBackgroundMessage/);
   assert.match(serviceWorker, /notificationclick/);
+});
+
+test('staged games, timers, manual builder, court names, and session export are exposed responsively', () => {
+  assert.match(html, /Stage Available Courts/);
+  assert.match(app, /function startStagedGame/);
+  assert.match(app, /Engine\.stageGame/);
+  assert.match(app, /function openManualMatchBuilder/);
+  assert.match(app, /Engine\.stageManualGame/);
+  assert.match(html, /\.manual-builder\s*\{[^}]*grid-template-columns/);
+  assert.match(html, /@media \(max-width:\s*480px\)[\s\S]*\.manual-builder\s*\{\s*grid-template-columns:\s*1fr/);
+  assert.match(app, /function renameCourt/);
+  assert.match(app, /Engine\.courtDisplayName/);
+  assert.match(app, /data-court-timer/);
+  assert.match(app, /function updateCourtTimers/);
+  assert.match(html, /Summary & Export/);
+  assert.match(app, /function openSessionSummary/);
+  assert.match(app, /function exportSessionCsv/);
+  assert.match(app, /text\/csv/);
 });

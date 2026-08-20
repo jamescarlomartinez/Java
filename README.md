@@ -16,6 +16,11 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 - **Skill Balanced** uses **Beginner** and **Intermediate & Above** to minimize the team-skill gap before applying the same matchup-mixing priorities.
 - Every existing pre-v3.4 player is reset to an unconfirmed level. They may play on Any courts, but must choose one of the current levels before using a strict skill-designated court.
 - Controllers can designate every court as **Any level**, **Beginner**, or **Intermediate & Above**. Strict courts never mix levels and are filled before Any courts.
+- Controllers can give courts recognizable custom names. Names appear consistently in live court cards, alerts, history, activity, summaries, and exports.
+- Fair or manually built lineups are first placed in **Up Next**. Staged players are reserved but receive no game credit until **Start Game** is tapped.
+- **Build Manually** provides four mobile-friendly player selectors for exact teams while still enforcing availability and skill-court eligibility.
+- Each started court has an elapsed timer. Completed timed games retain their duration in Game History and Session Summary; migrated in-progress games begin timing with their next game.
+- **Summary & Export** shows completed-game totals, timing metrics, court usage, and standings. It downloads player and game records as a CSV entirely on the device.
 - Checked-in players can explicitly enable free device alerts. The existing live Firestore room snapshot detects a new assignment, shows a system notification, displays an in-app banner, and vibrates when supported. No Cloud Functions, FCM token storage, or paid Firebase plan is required.
 - Free turn alerts require the app to remain open or running in the background. They cannot arrive after the browser or installed app is fully closed; true closed-app push would require a server-side push service.
 - Each shared role has a context-sensitive **How to Use** guide, shown automatically on its first visit and available afterward from the session card.

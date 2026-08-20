@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v22-complete-player-mixing';
+const CACHE = 'pickleball-v23-staged-games-and-session-tools';
 const ASSETS = [
   './',
   './index.html',
