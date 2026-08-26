@@ -32,7 +32,8 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'schemaVersion', 'name', 'hostUid', 'hostName', 'hostEmail',
           'organizerGrantId', 'status', 'revision', 'state', 'undoStack',
-          'lastEventId', 'createdAt', 'updatedAt', 'endedAt', 'expiresAt'
+          'lastEventId', 'createdAt', 'updatedAt', 'endedAt', 'expiresAt',
+          'dataLayoutVersion', 'recentActionIds'
         ])
         && data.schemaVersion == 1
         && data.name is string && data.name.size() > 0 && data.name.size() <= 60
@@ -42,7 +43,11 @@ service cloud.firestore {
         && data.revision is int && data.revision >= 0
         && data.state is map
         && data.undoStack is list && data.undoStack.size() <= 10
-        && data.lastEventId is string;
+        && data.lastEventId is string
+        && (!data.keys().hasAny(['dataLayoutVersion'])
+          || (data.dataLayoutVersion is int && data.dataLayoutVersion >= 1))
+        && (!data.keys().hasAny(['recentActionIds'])
+          || (data.recentActionIds is list && data.recentActionIds.size() <= 40));
     }
 
     match /allowedEmails/{grantId} {
@@ -83,7 +88,7 @@ service cloud.firestore {
             && request.resource.data.endedAt == resource.data.endedAt
             && request.resource.data.expiresAt == resource.data.expiresAt
             && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['state', 'revision', 'updatedAt', 'lastEventId', 'undoStack'])
+              .hasOnly(['state', 'revision', 'updatedAt', 'lastEventId', 'undoStack', 'dataLayoutVersion', 'recentActionIds'])
           )
         );
 
@@ -126,7 +131,7 @@ service cloud.firestore {
         ])
         && request.resource.data.keys().hasOnly([
           'roomId', 'revision', 'type', 'summary', 'actorUid', 'actorName',
-          'beforeState', 'createdAt', 'expiresAt'
+          'beforeState', 'undoPatch', 'actionId', 'createdAt', 'expiresAt'
         ])
         && request.resource.data.roomId is string
         && request.resource.data.actorUid == request.auth.uid
@@ -136,6 +141,9 @@ service cloud.firestore {
         && request.resource.data.type is string && request.resource.data.type.size() <= 40
         && request.resource.data.summary is string && request.resource.data.summary.size() <= 300
         && request.resource.data.revision is int
+        && (!request.resource.data.keys().hasAny(['actionId'])
+          || (request.resource.data.actionId is string && request.resource.data.actionId.size() <= 120))
+        && (!request.resource.data.keys().hasAny(['undoPatch']) || request.resource.data.undoPatch is list)
         && request.resource.data.expiresAt is timestamp
         && existsAfter(roomPath(request.resource.data.roomId))
         && existsAfter(memberPath(request.resource.data.roomId, request.auth.uid))

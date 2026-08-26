@@ -364,6 +364,42 @@ test('simultaneous controller transactions retry without losing either update', 
   assert.deepEqual(finalRoom.state.players.map(player => player.id).sort(), ['p-a', 'p-b']);
 });
 
+test('layout metadata, action IDs, and compact undo patches are accepted', { skip: !emulatorAvailable }, async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'rooms/room-layout'), room({
+      hostUid: 'host-1', name: 'Layout room', lastEventId: 'seed-layout',
+      dataLayoutVersion: 1, recentActionIds: []
+    }));
+    await setDoc(doc(db, 'roomMembers/room-layout_guest-layout'), {
+      roomId: 'room-layout', uid: 'guest-layout', displayName: 'Guest Layout', role: 'controller', playerId: null,
+      joinedAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+  });
+  const db = env.authenticatedContext('guest-layout').firestore();
+  const roomRef = doc(db, 'rooms/room-layout');
+  const eventRef = doc(db, 'roomEvents/layout-action');
+  await assertSucceeds(runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(roomRef);
+    const data = snapshot.data();
+    transaction.update(roomRef, {
+      dataLayoutVersion: 1,
+      recentActionIds: ['action-layout'],
+      state: { schemaVersion: 9, players: [{ id: 'p1', name: 'Amy' }] },
+      revision: 1,
+      lastEventId: eventRef.id,
+      undoStack: [eventRef.id],
+      updatedAt: serverTimestamp()
+    });
+    transaction.set(eventRef, {
+      roomId: 'room-layout', revision: 1, type: 'player_added', summary: 'Added Amy',
+      actorUid: 'guest-layout', actorName: 'Guest Layout', actionId: 'action-layout',
+      undoPatch: [{ path: ['players'], value: data.state.players }],
+      createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+  }));
+});
+
 test('test harness is intentionally skipped without the Firestore emulator', { skip: emulatorAvailable }, () => {
   assert.equal(emulatorAvailable, false);
 });

@@ -72,6 +72,26 @@
     .app-logo-fallback .header-title { font-size: 1.25rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; }
     .app-logo-fallback .header-subtitle { font-size: 0.72rem; color: var(--primary-light); letter-spacing: 0.5px; margin-top: 2px; }
 
+    body.high-contrast {
+      --bg: #000;
+      --card: #08150e;
+      --card2: #10291a;
+      --border: #78f5ae;
+      --primary: #18a85d;
+      --primary-light: #a4ffd0;
+      --accent: #ffc06b;
+      --text: #fff;
+      --text-dim: #d7ffe8;
+      --text-muted: #b7d9c4;
+      --wait-bg: #0d1025;
+      --wait-border: #9b9bff;
+      --wait-text: #dedcff;
+    }
+    html.large-text { font-size: 19px; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+
     /* ── CONTAINER ── */
     .container { width: min(100%, 840px); margin: 0 auto; padding: 12px clamp(10px, 2.5vw, 18px) 0; }
 
@@ -114,7 +134,12 @@
     .btn-block    { width: 100%; padding: 15px; font-size: 1rem; border-radius: 12px; }
 
     /* ── PLAYER LIST ── */
-    .player-list { margin-top: 10px; max-height: 230px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .search-control { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .search-input { width: 100%; min-height: 44px; padding: 10px 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 9px; font: inherit; outline: none; }
+    .search-input:focus { border-color: var(--primary-light); box-shadow: 0 0 0 2px rgba(109,207,160,.15); }
+    .search-result-count { color: var(--text-muted); font-size: .7rem; white-space: nowrap; }
+    .list-more { width: 100%; min-height: 44px; margin-top: 4px; }
+    .player-list { margin-top: 10px; max-height: 330px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .player-list::-webkit-scrollbar { width: 3px; }
     .player-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     .player-item {
@@ -404,6 +429,22 @@
     .sync-badge.ended { color: #b8b8d8; background: rgba(160,160,204,.12); }
     .room-identity { color: var(--text-dim); font-size: .76rem; margin-top: 8px; }
     .room-player-identity { margin-top: 5px; color: #a7f3d0; font-size: .76rem; line-height: 1.4; }
+    .large-room-badge { display: inline-flex; align-items: center; padding: 4px 8px; margin-top: 8px; border: 1px solid rgba(244,162,97,.45); border-radius: 999px; color: #ffd58a; background: rgba(244,162,97,.1); font-size: .68rem; font-weight: 900; }
+
+    /* ── SESSION INFO / DISPLAY PREFERENCES ── */
+    .session-info-card { padding: 13px 15px; }
+    .announcement-banner { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid rgba(244,162,97,.46); border-radius: 10px; color: #ffe1b8; background: rgba(244,162,97,.1); line-height: 1.45; }
+    .announcement-banner strong { flex-shrink: 0; }
+    .session-rules { margin-top: 9px; border-top: 1px solid rgba(42,90,62,.5); padding-top: 9px; }
+    .session-rules summary { min-height: 44px; display: flex; align-items: center; color: var(--primary-light); font-weight: 800; cursor: pointer; }
+    .session-rules-copy { color: var(--text-dim); white-space: pre-wrap; line-height: 1.5; font-size: .82rem; }
+    .session-info-actions { display: flex; justify-content: flex-end; margin-top: 9px; }
+    .preference-list { display: grid; gap: 8px; }
+    .preference-option { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); cursor: pointer; }
+    .preference-option span { display: grid; gap: 2px; font-weight: 800; }
+    .preference-option small { color: var(--text-muted); font-weight: 600; line-height: 1.3; }
+    .preference-option input { width: 22px; height: 22px; accent-color: var(--primary-light); flex-shrink: 0; }
+    .modal-textarea { min-height: 104px; resize: vertical; line-height: 1.45; }
 
     /* ── ACTIVITY ── */
     .activity-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 9px 0; border-bottom: 1px solid rgba(42,90,62,.3); }
@@ -411,6 +452,26 @@
     .activity-summary { color: var(--text); font-size: .83rem; line-height: 1.35; }
     .activity-meta { color: var(--text-muted); font-size: .68rem; margin-top: 2px; }
     .activity-time { color: var(--text-muted); font-size: .68rem; white-space: nowrap; }
+    .activity-state { display: grid; justify-items: center; gap: 9px; padding: 15px 8px; color: var(--text-muted); text-align: center; font-size: .8rem; }
+
+    /* ── COURT DISPLAY MODE ── */
+    .court-display-bar { display: none; position: fixed; inset: 0 0 auto; z-index: 500; min-height: 58px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; background: #081b12; border-bottom: 2px solid var(--accent); box-shadow: 0 3px 16px rgba(0,0,0,.45); }
+    .court-display-title { min-width: 0; display: grid; gap: 2px; }
+    .court-display-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; }
+    .court-display-title span { color: var(--text-muted); font-size: .68rem; }
+    body.court-display-mode { padding-bottom: 0; }
+    body.court-display-mode .app-header,
+    body.court-display-mode .offline-bar,
+    body.court-display-mode .container > *:not(#courtsSection) { display: none !important; }
+    body.court-display-mode .court-display-bar { display: flex; }
+    body.court-display-mode .container { width: 100%; max-width: none; padding: 70px 12px 12px; }
+    body.court-display-mode #courtsSection { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); align-items: start; gap: 12px; }
+    body.court-display-mode .court-card { margin: 0; }
+    body.court-display-mode .tp-actions,
+    body.court-display-mode .winner-section,
+    body.court-display-mode .next-actions,
+    body.court-display-mode .next-empty .court-action-grid { display: none !important; }
+    body.large-room-mode .status-playing { animation: none; }
 
     /* ── MODAL / PICKER ── */
     .modal-overlay { position: fixed; inset: 0; z-index: 10000; display: none; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.72); padding: 16px; }
@@ -611,6 +672,7 @@
 
   <!-- Solo / shared session controls -->
   <div class="card session-card" id="sessionCard"></div>
+  <div id="sessionInfoSection"></div>
 
   <!-- Message -->
   <div class="msg-box" id="msgBox"></div>
@@ -623,6 +685,10 @@
         placeholder="Enter player name…" maxlength="30"
         autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false">
       <button class="btn btn-primary" onclick="addPlayer()">Add</button>
+    </div>
+    <div class="search-control" id="playerSearchWrap" hidden>
+      <input class="search-input" id="playerSearch" type="search" placeholder="Search players…" autocomplete="off" aria-label="Search players" data-local-control>
+      <span class="search-result-count" id="playerSearchCount"></span>
     </div>
     <div class="player-list" id="playerList"></div>
     <div class="divider"></div>
@@ -679,6 +745,10 @@
       <div class="lb-header-actions"><button class="btn btn-primary btn-sm" onclick="openSessionSummary()">📄 Summary & Export</button>
         <button class="btn btn-ghost btn-sm host-only" data-host-only onclick="resetStats()">Reset Stats</button></div>
     </div>
+    <div class="search-control" id="standingsSearchWrap" hidden>
+      <input class="search-input" id="standingsSearch" type="search" placeholder="Search standings…" autocomplete="off" aria-label="Search player standings">
+      <span class="search-result-count" id="standingsSearchCount"></span>
+    </div>
     <table class="lb-table">
       <thead>
         <tr>
@@ -706,6 +776,11 @@
     <button class="btn btn-ghost btn-sm" id="updateAppBtn" type="button">↻ Update App</button>
   </footer>
 
+</div>
+
+<div class="court-display-bar" id="courtDisplayBar" aria-live="polite">
+  <div class="court-display-title"><strong id="courtDisplayTitle">Live Courts</strong><span>Automatic live updates</span></div>
+  <button class="btn btn-ghost btn-sm" type="button" onclick="exitCourtDisplay()">✕ Exit Display</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1411,6 +1486,7 @@ fbAuth.onAuthStateChanged(function(user) {
 </script>
 <script src="./vendor/qrcode.js"></script>
 <script src="./rotation-engine.js"></script>
+<script src="./room-data.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

@@ -25,11 +25,20 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 - **Summary & Export** shows completed-game totals, timing metrics, court usage, and standings. It downloads player and game records as a CSV entirely on the device.
 - Checked-in players can explicitly enable free device alerts. The existing live Firestore room snapshot detects a new assignment, shows a system notification, displays an in-app banner, and vibrates when supported. No Cloud Functions, FCM token storage, or paid Firebase plan is required.
 - Free turn alerts require the app to remain open or running in the background. They cannot arrive after the browser or installed app is fully closed; true closed-app push would require a server-side push service.
-- Each shared role has a context-sensitive **How to Use** guide covering active and Up Next games, reservations, alerts, timers, summaries, and role-specific controls. The revised guide is shown once after updating and remains available from the session card.
-- Every shared action runs in a Firestore transaction and creates a top-level `roomEvents` record.
+- Each shared role has a context-sensitive **How to Use** guide covering active and Up Next games, reservations, alerts, timers, summaries, large rooms, and role-specific controls. The revised guide is shown once after updating and remains available from the session card.
+- **Live Activity** subscribes only while its panel is open. Large Room Mode activates automatically at 50 players, limits live activity to 20 recent events, paginates player/standings rendering, and caps decorative availability chips.
+- Player and standings search remain local to the device and do not create Firestore reads.
+- **Display Settings** stores high-contrast, larger-text, assignment-sound, and vibration preferences locally. **Court Display** presents only live court cards in a fullscreen-ready board.
+- Controllers can publish a short announcement and collapsible Session Rules. They travel with the existing room state and do not require another backend service.
+- Every shared action runs in a Firestore transaction and creates a top-level `roomEvents` record. Stable intent IDs prevent repeated critical actions from being applied twice.
+- New undo records store compact inverse patches; legacy `beforeState` events remain supported. The `room-data.js` compatibility layer reads old room documents while marking new writes with a layout version for future partitioning.
 - Organizer-only controls include clear-all, reset, undo, and end-session.
 - Ended rooms are read-only. They retain a cleanup date for future manual maintenance, but automatic Firestore TTL deletion is not enabled because it requires billing.
 - The footer shows the running app version. **Update App** clears old Pickleball caches, resets the service worker, and reloads the latest deployed release.
+
+## v3.9.0 scale-ready behavior
+
+The release keeps the current room document as the source of truth so existing rooms and links continue to work. New rooms add optional `dataLayoutVersion` and bounded `recentActionIds` fields. This is preparation for a future per-court/player storage layout, not a breaking migration.
 
 ## Local verification
 

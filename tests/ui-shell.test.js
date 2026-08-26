@@ -89,7 +89,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v24-per-court-next-lineups/);
+  assert.match(serviceWorker, /pickleball-v25-large-room-toolkit/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -117,7 +117,7 @@ test('controllers choose and safely manage player participation', () => {
 test('Firebase Hosting publishes only the explicit app bundle', () => {
   assert.equal(firebaseConfig.hosting.public, '.firebase-public');
   assert.equal(firebaseConfig.hosting.predeploy, 'node scripts/prepare-hosting.js');
-  for (const requiredFile of ['index.html', 'app.js', 'rotation-engine.js', 'sw.js', 'vendor/qrcode.js']) {
+  for (const requiredFile of ['index.html', 'app.js', 'rotation-engine.js', 'room-data.js', 'sw.js', 'vendor/qrcode.js']) {
     assert.match(hostingBuild, new RegExp(requiredFile.replace('.', '\\.')));
   }
   assert.doesNotMatch(hostingBuild, /README\.md|package-lock|firestore\.rules|src\//);
@@ -147,7 +147,7 @@ test('each shared role has context help and QR access summaries', () => {
   assert.match(app, /❓ How to Use/);
   assert.match(app, /pickleballHelpSeen_/);
   assert.match(app, /accessRoleSummary/);
-  assert.match(app, /var ROLE_HELP_VERSION = 'v5'/);
+  assert.match(app, /var ROLE_HELP_VERSION = 'v6'/);
   assert.match(app, /Prepare Courts & Up Next/);
   assert.match(app, /prepared lineup moves into the main court view/);
   assert.match(app, /ask a controller to edit or remove your prepared assignment/i);
@@ -192,4 +192,49 @@ test('per-court Up Next, timers, manual builder, court names, and session export
   assert.match(app, /function openSessionSummary/);
   assert.match(app, /function exportSessionCsv/);
   assert.match(app, /text\/csv/);
+});
+
+test('live activity subscribes only while the section is open', () => {
+  assert.match(app, /function toggleActivity\(\)[\s\S]*if \(activityOpen\) subscribeToEvents\(\)/);
+  assert.match(app, /\.limit\(activityQueryLimit\(\)\)/);
+  assert.match(app, /Open this section to connect to recent activity/);
+  assert.doesNotMatch(app, /subscribeToRoom\(\);\s*subscribeToEvents\(\);/);
+});
+
+test('shared actions use intent deduplication and compact backwards-compatible undo', () => {
+  assert.match(app, /recentActionIds: RoomData\.appendActionId/);
+  assert.match(app, /stableActionId\(type, options\.dedupeKey\)/);
+  assert.match(app, /eventData\.undoPatch = RoomData\.createUndoPatch/);
+  assert.match(app, /RoomData\.applyUndoPatch\(currentState, target\.undoPatch\)/);
+  assert.match(app, /target\.beforeState/);
+  assert.doesNotMatch(app, /beforeState: beforeState/);
+});
+
+test('large-room mode limits rendered lists and exposes player and standings search', () => {
+  assert.match(app, /var LARGE_ROOM_THRESHOLD = 50/);
+  assert.match(app, /LARGE_ROOM_EVENT_LIMIT = 20/);
+  assert.match(app, /filtered\.slice\(0, playerVisibleLimit\)/);
+  assert.match(app, /filtered\.slice\(0, standingsVisibleLimit\)/);
+  assert.match(html, /id="playerSearch"/);
+  assert.match(html, /id="standingsSearch"/);
+  assert.match(html, /body\.large-room-mode \.status-playing/);
+});
+
+test('display preferences, fullscreen courts, rules, and announcements are available without new network services', () => {
+  assert.match(app, /pickleballDisplayPreferences_v1/);
+  assert.match(app, /function openDisplaySettings/);
+  assert.match(app, /function enterCourtDisplay/);
+  assert.match(app, /function openSessionInfoEditor/);
+  assert.match(app, /sessionAnnouncement/);
+  assert.match(app, /sessionRules/);
+  assert.match(html, /id="courtDisplayBar"/);
+  assert.match(html, /body\.court-display-mode #courtsSection/);
+  assert.match(html, /body\.high-contrast/);
+  assert.match(html, /html\.large-text/);
+});
+
+test('the compatibility data layer loads before the application', () => {
+  assert.ok(html.indexOf('./room-data.js') < html.indexOf('./app.js'));
+  assert.match(serviceWorker, /room-data\.js/);
+  assert.match(hostingBuild, /room-data\.js/);
 });

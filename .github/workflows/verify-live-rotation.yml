@@ -4,10 +4,13 @@ on:
   pull_request:
     paths:
       - "index.html"
+      - "room-data.js"
       - "app.js"
       - "rotation-engine.js"
       - "sw.js"
       - "firestore.rules"
+      - "version.json"
+      - "scripts/prepare-hosting.js"
       - "firestore.indexes.json"
       - "firebase.json"
       - "package.json"
