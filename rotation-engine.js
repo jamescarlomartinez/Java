@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  var SCHEMA_VERSION = 8;
+  var SCHEMA_VERSION = 9;
   var SKILL_LEVELS = [
     { value: 1, key: 'beginner', label: 'Beginner', description: 'Learning rules and building consistency.' },
     { value: 2, key: 'intermediate_plus', label: 'Intermediate & Above', description: 'Consistent rallies, positioning, and strategy through advanced play.' }
@@ -95,6 +95,8 @@
       history: [],
       rotationRound: 0,
       matchmakingMode: 'social',
+      sessionAnnouncement: '',
+      sessionRules: '',
       teammateCounts: {},
       opponentCounts: {}
     };
@@ -235,6 +237,8 @@
     state.history = Array.isArray(state.history) ? state.history.slice(0, 100) : [];
     state.rotationRound = Math.max(0, Number(state.rotationRound) || 0);
     state.matchmakingMode = state.matchmakingMode === 'balanced' ? 'balanced' : 'social';
+    state.sessionAnnouncement = String(state.sessionAnnouncement || '').trim().slice(0, 240);
+    state.sessionRules = String(state.sessionRules || '').trim().slice(0, 1500);
     state.teammateCounts = state.teammateCounts && typeof state.teammateCounts === 'object' ? state.teammateCounts : {};
     state.opponentCounts = state.opponentCounts && typeof state.opponentCounts === 'object' ? state.opponentCounts : {};
     initCourtStates(state, state.courts);

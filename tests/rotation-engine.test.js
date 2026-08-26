@@ -59,7 +59,7 @@ test('migrates pickleballRotation_v2 names, stats, availability, courts, and his
     history: [{ courtNum: 1, gameNum: 3, teamA: ['Amy', 'Cara'], teamB: ['Ben', 'Dan'], winner: 'A', ts: 42 }]
   });
 
-  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.schemaVersion, Engine.SCHEMA_VERSION);
   assert.equal(new Set(migrated.players.map(player => player.id)).size, 4);
   assert.equal(migrated.players.find(player => player.name === 'Amy').games, 3);
   assert.equal(migrated.players.find(player => player.name === 'Amy').wins, 2);
@@ -79,7 +79,7 @@ test('normalizes older room players with social matchmaking and check-in default
     history: []
   });
 
-  assert.equal(normalized.schemaVersion, 8);
+  assert.equal(normalized.schemaVersion, Engine.SCHEMA_VERSION);
   assert.equal(normalized.matchmakingMode, 'social');
   assert.equal(normalized.players[0].skillRating, null);
   assert.equal(normalized.players[0].skillLevelConfirmed, false);
@@ -123,7 +123,7 @@ test('schema-8 migration preserves schema-6 skill levels and adds safe court def
     history: []
   });
 
-  assert.equal(normalized.schemaVersion, 8);
+  assert.equal(normalized.schemaVersion, Engine.SCHEMA_VERSION);
   assert.equal(normalized.players[0].skillRating, 2);
   assert.equal(normalized.players[0].skillLevelConfirmed, true);
   assert.equal(normalized.courtStates[0].name, 'Court 1');
@@ -183,7 +183,7 @@ test('schema-7 staged courts migrate into an independent next lineup', () => {
   });
 
   const migrated = Engine.normalizeState(old);
-  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.schemaVersion, Engine.SCHEMA_VERSION);
   assert.equal(migrated.courtStates[0].status, 'empty');
   assert.deepEqual(migrated.courtStates[0].teamA, []);
   assert.deepEqual(migrated.courtStates[0].nextGame, {
@@ -825,4 +825,28 @@ test('standings use wins, games, and numeric player name as tie-breakers', () =>
     Engine.rankedPlayers(state).map(player => player.name),
     ['6', '10', '11', '12', '14', '1', '3', '4', '5', '7', '13', '9', '8', '2']
   );
+});
+
+test('schema-9 migration adds bounded session information without changing games', () => {
+  const old = stateWithPlayers(['A', 'B'], 2);
+  old.schemaVersion = 8;
+  old.sessionAnnouncement = '  Courts close at 9 PM.  ';
+  old.sessionRules = 'Games to 11.';
+  old.players[0].games = 2;
+  old.players[0].wins = 1;
+  old.players[1].games = 1;
+  const normalized = Engine.normalizeState(old);
+  assert.equal(normalized.schemaVersion, Engine.SCHEMA_VERSION);
+  assert.equal(normalized.sessionAnnouncement, 'Courts close at 9 PM.');
+  assert.equal(normalized.sessionRules, 'Games to 11.');
+  assert.equal(normalized.players[0].games, old.players[0].games);
+});
+
+test('session information is bounded for safe shared-room storage', () => {
+  const state = Engine.createState(1);
+  state.sessionAnnouncement = 'a'.repeat(300);
+  state.sessionRules = 'r'.repeat(1800);
+  const normalized = Engine.normalizeState(state);
+  assert.equal(normalized.sessionAnnouncement.length, 240);
+  assert.equal(normalized.sessionRules.length, 1500);
 });

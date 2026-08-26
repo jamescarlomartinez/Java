@@ -1,9 +1,10 @@
-const CACHE = 'pickleball-v24-per-court-next-lineups';
+const CACHE = 'pickleball-v25-large-room-toolkit';
 const ASSETS = [
   './',
   './index.html',
   './app.js',
   './rotation-engine.js',
+  './room-data.js',
   './vendor/qrcode.js',
   './manifest.json',
   './icon-192.png',

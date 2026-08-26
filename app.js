@@ -1,12 +1,18 @@
 'use strict';
 
 var Engine = window.PickleballRotation;
-var APP_VERSION = '3.8.0';
+var RoomData = window.PickleballRoomData;
+var APP_VERSION = '3.9.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
+var DISPLAY_PREFS_KEY = 'pickleballDisplayPreferences_v1';
 var ROOM_PARAM = 'room';
 var EVENT_LIMIT = 100;
+var LARGE_ROOM_EVENT_LIMIT = 20;
+var LARGE_ROOM_THRESHOLD = 50;
+var LARGE_ROOM_PAGE_SIZE = 30;
+var LARGE_ROOM_CHIP_LIMIT = 40;
 var UNDO_LIMIT = 10;
 var THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 
@@ -32,7 +38,16 @@ var roomUnsubscribe = null;
 var eventsUnsubscribe = null;
 var activityEvents = [];
 var activityOpen = false;
+var activityLoading = false;
+var activityError = '';
 var historyOpen = false;
+var playerSearchQuery = '';
+var standingsSearchQuery = '';
+var playerVisibleLimit = LARGE_ROOM_PAGE_SIZE;
+var standingsVisibleLimit = LARGE_ROOM_PAGE_SIZE;
+var inFlightActionKeys = new Set();
+var courtDisplayActive = false;
+var displayPreferences = loadDisplayPreferences();
 var swapState = null;
 var sharedBusy = false;
 var syncStatus = roomId ? 'syncing' : 'connected';
@@ -45,7 +60,7 @@ var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v5';
+var ROLE_HELP_VERSION = 'v6';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -75,6 +90,8 @@ var ROLE_HELP = {
       'Game credit and the court timer begin only after the controller taps Start Game.',
       'Use My Skill or Take a Break only when you are not on court or reserved Up Next.',
       'If you need to leave or take a break while Up Next, ask a controller to edit or remove your prepared assignment first.',
+      'Use player and standings search in larger groups, and open Display Settings for larger text, high contrast, sound, or vibration preferences.',
+      'Read the organizer’s announcement and Session Rules when they are provided.',
       'Follow standings, court timers, Game History, and Session Summary & Export for live and completed results.'
     ]
   },
@@ -86,6 +103,8 @@ var ROLE_HELP = {
       'Read court names, skill designations, teams, elapsed timers, and status badges.',
       'Players shown Up Next are reserved and cannot be placed in another lineup.',
       'After a winner is recorded, the prepared lineup moves into the main court view and waits for Start Game.',
+      'Use search for a large roster, open Live Activity only when you need it, and use Court Display for a fullscreen court board.',
+      'Use Display Settings for larger text, high contrast, sound, or vibration preferences, and read Session Rules or announcements when provided.',
       'Follow Player Standings, Game History, Live Activity, and Session Summary & Export.',
       'The page updates automatically. Game controls are intentionally unavailable in View Only mode.'
     ]
@@ -105,6 +124,8 @@ var ROLE_HELP = {
       'If a reserved player needs to leave or rest, edit or remove the Up Next lineup first.',
       'Use custom court names, skill designations, Replace, team swaps, Player Tools, alerts, Session Summary, and CSV export as needed.',
       'Use QR & Links to explain and share Player Check-In, View Only, or Controller access.',
+      'Use player and standings search, Court Display, display preferences, Session Rules, and announcements for larger sessions. Large Room Mode activates automatically at 50 players.',
+      'Live Activity connects only while opened. Repeated actions are safely deduplicated, and Undo preserves unrelated later check-ins by restoring only changed fields.',
       'Organizer only: Undo, Reset All, Clear All Players, Reset Stats, and End Session.'
     ]
   }
@@ -114,6 +135,68 @@ function esc(value) {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function loadDisplayPreferences() {
+  var defaults = { highContrast: false, largeText: false, sound: false, vibration: true };
+  try {
+    var stored = JSON.parse(localStorage.getItem(DISPLAY_PREFS_KEY) || '{}');
+    Object.keys(defaults).forEach(function (key) { if (typeof stored[key] !== 'boolean') stored[key] = defaults[key]; });
+    return stored;
+  } catch (error) {
+    return defaults;
+  }
+}
+
+function saveDisplayPreferences() {
+  localStorage.setItem(DISPLAY_PREFS_KEY, JSON.stringify(displayPreferences));
+  applyDisplayPreferences();
+}
+
+function applyDisplayPreferences() {
+  document.body.classList.toggle('high-contrast', !!displayPreferences.highContrast);
+  document.documentElement.classList.toggle('large-text', !!displayPreferences.largeText);
+}
+
+function isLargeRoom() {
+  return S.players.length >= LARGE_ROOM_THRESHOLD;
+}
+
+function activityQueryLimit() {
+  return isLargeRoom() ? LARGE_ROOM_EVENT_LIMIT : EVENT_LIMIT;
+}
+
+function actionHash(value) {
+  var hash = 2166136261;
+  for (var index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function stableActionId(type, dedupeKey) {
+  return 'a_' + actionHash([roomId, type, dedupeKey].join('|'));
+}
+
+function playTurnSound() {
+  if (!displayPreferences.sound) return;
+  try {
+    var AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    var context = new AudioContextClass();
+    var oscillator = context.createOscillator();
+    var gain = context.createGain();
+    oscillator.frequency.value = 740;
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.28);
+    oscillator.connect(gain); gain.connect(context.destination);
+    oscillator.start(); oscillator.stop(context.currentTime + 0.3);
+    oscillator.onended = function () { context.close(); };
+  } catch (error) {
+    console.warn('Turn sound unavailable:', error);
+  }
 }
 
 function setAuthMessage(title, copy, showGoogleButton) {
@@ -255,7 +338,8 @@ function showTurnAlert(assignment, deliveryKey) {
     : 'You’re up on ' + assignment.courtName + '!';
   alert.querySelector('.turn-alert-copy').textContent = 'Partner: ' + assignment.partner + ' · vs ' + assignment.opponents.join(' & ');
   alert.classList.add('visible');
-  if (navigator.vibrate) navigator.vibrate([180, 90, 180]);
+  playTurnSound();
+  if (displayPreferences.vibration && navigator.vibrate) navigator.vibrate([180, 90, 180]);
 }
 
 function showSystemTurnNotification(assignment, deliveryKey) {
@@ -270,15 +354,16 @@ function showSystemTurnNotification(assignment, deliveryKey) {
     : navigator.serviceWorker.ready;
   registrationPromise.then(function (registration) {
     appServiceWorkerRegistration = registration;
-    return registration.showNotification(title, {
+    var notificationOptions = {
       body: body,
       icon: './icon-192.png',
       badge: './icon-192.png',
       tag: deliveryKey || 'pickleball-turn',
       renotify: false,
-      vibrate: [180, 90, 180],
       data: { url: sharedRoomUrl(isFullController() ? 'controller' : 'player'), deliveryId: deliveryKey || '' }
-    });
+    };
+    if (displayPreferences.vibration) notificationOptions.vibrate = [180, 90, 180];
+    return registration.showNotification(title, notificationOptions);
   }).catch(function (error) { console.warn('Could not show turn notification:', error); });
 }
 
@@ -378,6 +463,83 @@ function maybeShowRoleHelp() {
   var role = currentHelpRole();
   var key = 'pickleballHelpSeen_' + ROLE_HELP_VERSION + '_' + role;
   if (!localStorage.getItem(key)) setTimeout(function () { openRoleHelp(role, true); }, 350);
+}
+
+function openDisplaySettings() {
+  var modal = openModal({
+    title: 'Display Settings',
+    copy: 'These preferences are saved only on this device and do not add network activity.',
+    body: '<div class="preference-list">'
+      + preferenceOption('prefHighContrast', 'High contrast', 'Stronger colors and borders for easier reading.', displayPreferences.highContrast)
+      + preferenceOption('prefLargeText', 'Large text', 'Increase text throughout the app.', displayPreferences.largeText)
+      + preferenceOption('prefSound', 'Turn sound', 'Play a short sound when your lineup is prepared.', displayPreferences.sound)
+      + preferenceOption('prefVibration', 'Vibration', 'Vibrate when your lineup is prepared, when supported.', displayPreferences.vibration)
+      + '</div>'
+  });
+  [['prefHighContrast', 'highContrast'], ['prefLargeText', 'largeText'], ['prefSound', 'sound'], ['prefVibration', 'vibration']].forEach(function (entry) {
+    var input = document.getElementById(entry[0]);
+    input.onchange = function () {
+      displayPreferences[entry[1]] = input.checked;
+      saveDisplayPreferences();
+      if (entry[1] === 'sound' && input.checked) playTurnSound();
+    };
+  });
+  var display = document.createElement('button');
+  display.className = 'btn btn-accent';
+  display.textContent = '⛶ Court Display';
+  display.onclick = function () { closeModal(); enterCourtDisplay(); };
+  var close = document.createElement('button');
+  close.className = 'btn btn-ghost'; close.textContent = 'Close'; close.onclick = closeModal;
+  modal.actions.appendChild(display); modal.actions.appendChild(close);
+}
+
+function preferenceOption(id, title, copy, checked) {
+  return '<label class="preference-option"><span>' + esc(title) + '<small>' + esc(copy) + '</small></span>'
+    + '<input id="' + esc(id) + '" type="checkbox"' + (checked ? ' checked' : '') + '></label>';
+}
+
+function enterCourtDisplay() {
+  courtDisplayActive = true;
+  document.body.classList.add('court-display-mode');
+  var title = document.getElementById('courtDisplayTitle');
+  if (title) title.textContent = roomData && roomData.name ? roomData.name : 'Live Courts';
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(function () {});
+  }
+}
+
+function exitCourtDisplay() {
+  courtDisplayActive = false;
+  document.body.classList.remove('court-display-mode');
+  if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+}
+
+function openSessionInfoEditor() {
+  if (!isFullController()) return;
+  var modal = openModal({
+    title: 'Session Rules & Announcement',
+    copy: 'Keep these brief. Everyone in the room will see them on their next live update.',
+    body: '<label class="modal-label" for="sessionAnnouncementInput">Announcement</label>'
+      + '<textarea class="modal-field modal-textarea" id="sessionAnnouncementInput" maxlength="240" placeholder="Example: Court 3 is temporarily closed.">' + esc(S.sessionAnnouncement || '') + '</textarea>'
+      + '<label class="modal-label" for="sessionRulesInput" style="margin-top:12px">Session Rules</label>'
+      + '<textarea class="modal-field modal-textarea" id="sessionRulesInput" maxlength="1500" placeholder="Example: Games to 11, win by 2. Call your own lines.">' + esc(S.sessionRules || '') + '</textarea>'
+  });
+  var cancel = document.createElement('button');
+  cancel.className = 'btn btn-ghost'; cancel.textContent = 'Cancel'; cancel.onclick = closeModal;
+  var save = document.createElement('button');
+  save.className = 'btn btn-primary'; save.textContent = 'Save Session Info';
+  save.onclick = function () {
+    var announcement = document.getElementById('sessionAnnouncementInput').value.trim().slice(0, 240);
+    var rules = document.getElementById('sessionRulesInput').value.trim().slice(0, 1500);
+    closeModal();
+    runAction('session_info_changed', function (state) {
+      if (state.sessionAnnouncement === announcement && state.sessionRules === rules) return { changed: false, reason: 'Session information is unchanged.' };
+      state.sessionAnnouncement = announcement;
+      state.sessionRules = rules;
+      return { changed: true, message: 'Session information updated.', summary: 'Updated session rules and announcement' };
+    }, { dedupeKey: 'session_info:' + (roomData ? roomData.revision : S.rotationRound) + ':' + actionHash(announcement + '|' + rules) });
+  };
+  modal.actions.appendChild(cancel); modal.actions.appendChild(save);
 }
 
 function renderAppVersion() {
@@ -728,7 +890,7 @@ function choosePlayerIdentity(options) {
 }
 
 function ensurePlayerIdentity() {
-  S = Engine.normalizeState(roomData.state);
+  S = RoomData.stateFromRoom(roomData, Engine);
   pendingPlayerSkillRating = null;
   var savedPlayer = Engine.playerById(S, localStorage.getItem(playerStorageKey()));
   if (savedPlayer && savedPlayer.skillLevelConfirmed && savedPlayer.checkedIn && savedPlayer.checkedInUid === currentUser.uid && !savedPlayer.notAvailable) {
@@ -946,7 +1108,7 @@ function initSharedRoom(user) {
   roomRef.get().then(function (snapshot) {
     if (!snapshot.exists) throw new Error('This shared game does not exist or has expired.');
     roomData = snapshot.data();
-    S = Engine.normalizeState(roomData.state);
+    S = RoomData.stateFromRoom(roomData, Engine);
     isOrganizer = roomData.hostUid === currentUser.uid;
     if (isOrganizer) accessMode = 'controller';
     if (isOrganizer) {
@@ -1001,7 +1163,6 @@ function initSharedRoom(user) {
       document.getElementById('signOutWrap').style.display = 'block';
       initUi();
       subscribeToRoom();
-      subscribeToEvents();
       maybeShowRoleHelp();
       refreshPlayerAlerts();
   }).catch(function (error) {
@@ -1022,7 +1183,7 @@ function subscribeToRoom() {
     }
     var previousState = S;
     roomData = snapshot.data();
-    var nextState = Engine.normalizeState(roomData.state);
+    var nextState = RoomData.stateFromRoom(roomData, Engine);
     detectNewPlayerAssignment(previousState, nextState, roomData.revision);
     S = nextState;
     if (linkedPlayerId) {
@@ -1048,18 +1209,25 @@ function subscribeToRoom() {
 }
 
 function subscribeToEvents() {
-  if (eventsUnsubscribe) eventsUnsubscribe();
+  if (eventsUnsubscribe) { eventsUnsubscribe(); eventsUnsubscribe = null; }
+  if (!roomId || !activityOpen) return;
+  activityLoading = true;
+  activityError = '';
+  renderActivitySection();
   eventsUnsubscribe = fbDb.collection('roomEvents')
     .where('roomId', '==', roomId)
     .orderBy('createdAt', 'desc')
-    .limit(EVENT_LIMIT)
+    .limit(activityQueryLimit())
     .onSnapshot(function (snapshot) {
+      activityLoading = false;
       activityEvents = snapshot.docs.map(function (doc) {
         var data = doc.data(); data.id = doc.id; return data;
       });
       renderActivitySection();
     }, function (error) {
       console.warn('Activity feed unavailable:', error);
+      activityLoading = false;
+      activityError = 'Activity could not be loaded. Check your connection and try again.';
       activityEvents = [];
       renderActivitySection();
     });
@@ -1068,7 +1236,32 @@ function subscribeToEvents() {
 function initUi() {
   var playerInput = document.getElementById('playerInput');
   playerInput.onkeydown = function (event) { if (event.key === 'Enter') { event.preventDefault(); addPlayer(); } };
+  var playerSearch = document.getElementById('playerSearch');
+  playerSearch.oninput = function () {
+    playerSearchQuery = playerSearch.value.trim().toLowerCase();
+    playerVisibleLimit = LARGE_ROOM_PAGE_SIZE;
+    renderPlayerList();
+    syncControlState();
+  };
+  var standingsSearch = document.getElementById('standingsSearch');
+  standingsSearch.oninput = function () {
+    standingsSearchQuery = standingsSearch.value.trim().toLowerCase();
+    standingsVisibleLimit = LARGE_ROOM_PAGE_SIZE;
+    renderLeaderboard();
+  };
+  applyDisplayPreferences();
   updateOnlineStatus();
+}
+
+function showMorePlayers() {
+  playerVisibleLimit += LARGE_ROOM_PAGE_SIZE;
+  renderPlayerList();
+  syncControlState();
+}
+
+function showMoreStandings() {
+  standingsVisibleLimit += LARGE_ROOM_PAGE_SIZE;
+  renderLeaderboard();
 }
 
 function eventExpiry() {
@@ -1094,12 +1287,16 @@ function runAction(type, reducer, options) {
   if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only change your own availability and skill level.'); return Promise.resolve(null); }
   if (options.hostOnly && !isOrganizer) { showToast('Only the organizer can do that.'); return Promise.resolve(null); }
 
+  var eventRef = fbDb.collection('roomEvents').doc();
+  var actionId = options.dedupeKey ? stableActionId(type, options.dedupeKey) : eventRef.id;
+  if (inFlightActionKeys.has(actionId)) return Promise.resolve({ changed: false, deduplicated: true });
+  inFlightActionKeys.add(actionId);
   sharedBusy = true;
   syncStatus = 'syncing';
   renderSessionCard();
   syncControlState();
-  var eventRef = fbDb.collection('roomEvents').doc();
   var resultForMessage = null;
+  var wasDeduplicated = false;
 
   return fbDb.runTransaction(function (transaction) {
     return transaction.get(roomRef).then(function (snapshot) {
@@ -1107,20 +1304,28 @@ function runAction(type, reducer, options) {
       var data = snapshot.data();
       if (data.status !== 'active') throw new Error('Shared game has ended.');
       if (options.hostOnly && data.hostUid !== currentUser.uid) throw new Error('Organizer permission required.');
-      var beforeState = Engine.normalizeState(data.state);
+      if (RoomData.recentActionIds(data).indexOf(actionId) !== -1) {
+        wasDeduplicated = true;
+        resultForMessage = { changed: false, deduplicated: true };
+        return;
+      }
+      var beforeState = RoomData.stateFromRoom(data, Engine);
       var nextState = Engine.clone(beforeState);
       var result = reducer(nextState);
       if (!result || result.changed === false) throw new Error((result && result.reason) || 'Nothing changed.');
       resultForMessage = result;
       var nextRevision = (Number(data.revision) || 0) + 1;
       var stack = Array.isArray(data.undoStack) ? data.undoStack.slice() : [];
-      if (options.undoable !== false) stack = stack.concat(eventRef.id).slice(-UNDO_LIMIT);
+      var undoable = options.undoable !== false;
+      if (undoable) stack = stack.concat(eventRef.id).slice(-UNDO_LIMIT);
       transaction.update(roomRef, {
+        dataLayoutVersion: RoomData.LAYOUT_VERSION,
         state: nextState,
         revision: nextRevision,
         updatedAt: FieldValue.serverTimestamp(),
         lastEventId: eventRef.id,
-        undoStack: stack
+        undoStack: stack,
+        recentActionIds: RoomData.appendActionId(data, actionId)
       });
       if (Object.prototype.hasOwnProperty.call(options, 'membershipPlayerId')) {
         transaction.update(fbDb.collection('roomMembers').doc(roomId + '_' + currentUser.uid), {
@@ -1130,26 +1335,30 @@ function runAction(type, reducer, options) {
           expiresAt: eventExpiry()
         });
       }
-      transaction.set(eventRef, {
+      var eventData = {
         roomId: roomId,
         revision: nextRevision,
         type: type,
         summary: result.summary || result.message || type,
         actorUid: currentUser.uid,
         actorName: controllerName,
-        beforeState: beforeState,
+        actionId: actionId,
         createdAt: FieldValue.serverTimestamp(),
         expiresAt: eventExpiry()
-      });
+      };
+      if (undoable) eventData.undoPatch = RoomData.createUndoPatch(beforeState, nextState);
+      transaction.set(eventRef, eventData);
     });
   }).then(function () {
-    if (resultForMessage && resultForMessage.message) showToast(resultForMessage.message);
+    if (wasDeduplicated) showToast('That action was already applied.');
+    else if (resultForMessage && resultForMessage.message) showToast(resultForMessage.message);
     clearMsg();
     return resultForMessage;
   }).catch(function (error) {
     showToast(error.message || 'Could not update the shared game.');
     return null;
   }).finally(function () {
+    inFlightActionKeys.delete(actionId);
     sharedBusy = false;
     syncStatus = navigator.onLine ? 'connected' : 'offline';
     renderSessionCard();
@@ -1225,7 +1434,7 @@ function clearAllPlayers() {
     Object.keys(state).forEach(function (key) { delete state[key]; });
     Object.assign(state, fresh);
     return { changed: true, message: 'All players and game data cleared.', summary: 'Cleared all players and game data' };
-  }, { hostOnly: true });
+  }, { hostOnly: true, dedupeKey: 'clear_players:' + (roomData ? roomData.revision : S.rotationRound) });
 }
 
 function toggleNotAvailable(index) {
@@ -1299,6 +1508,7 @@ function setCourtSkillGroup(index, group) {
 }
 
 function generateForCourt(index) {
+  var expectedGame = S.courtStates[index] ? (Number(S.courtStates[index].gameNum) || 0) + 1 : 0;
   runAction('next_game_prepared', function (state) {
     var result = Engine.prepareNextGame(state, index);
     if (!result.changed) return result;
@@ -1308,7 +1518,7 @@ function generateForCourt(index) {
       message: Engine.courtDisplayName(result.court) + ' — Game ' + result.nextGame.gameNum + ' is prepared Up Next.',
       summary: 'Prepared Up Next on ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
     };
-  });
+  }, { dedupeKey: 'court:' + index + ':prepare:' + expectedGame });
 }
 
 function fillAvailableCourts() {
@@ -1326,10 +1536,11 @@ function fillAvailableCourts() {
       message: 'Prepared ' + filled.length + ' fair lineup' + (filled.length === 1 ? '' : 's') + '.',
       summary: 'Prepared courts and Up Next for ' + filled.join(', ')
     };
-  });
+  }, { dedupeKey: 'bulk_prepare:' + (roomData ? roomData.revision : S.rotationRound) });
 }
 
 function startStagedGame(index) {
+  var nextGameNum = S.courtStates[index] && S.courtStates[index].nextGame ? S.courtStates[index].nextGame.gameNum : 0;
   runAction('game_started', function (state) {
     var result = Engine.startNextGame(state, index);
     if (!result.changed) return result;
@@ -1339,7 +1550,7 @@ function startStagedGame(index) {
       message: Engine.courtDisplayName(result.court) + ' — Game ' + result.court.gameNum + ' started!',
       summary: 'Started ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
     };
-  });
+  }, { dedupeKey: 'court:' + index + ':start:' + nextGameNum });
 }
 
 function cancelStagedGame(index) {
@@ -1351,7 +1562,7 @@ function cancelStagedGame(index) {
     var result = Engine.clearNextGame(state, index);
     if (!result.changed) return result;
     return { changed: true, message: targetName + ' Up Next lineup removed.', summary: 'Removed Up Next lineup from ' + targetName };
-  });
+  }, { dedupeKey: 'court:' + index + ':remove_next:' + court.nextGame.gameNum });
 }
 
 function openManualMatchBuilder(index) {
@@ -1412,7 +1623,7 @@ function openManualMatchBuilder(index) {
         message: Engine.courtDisplayName(result.court) + ' manual Up Next lineup is ready.',
         summary: 'Prepared manual Up Next on ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
       };
-    }).then(function (result) {
+    }, { dedupeKey: 'court:' + index + ':manual:' + (court.nextGame ? court.nextGame.gameNum : court.gameNum + 1) + ':' + chosen.join('|') }).then(function (result) {
       if (result && result.changed) closeModal();
       else stage.disabled = false;
     });
@@ -1422,6 +1633,7 @@ function openManualMatchBuilder(index) {
 }
 
 function recordWinner(index, winner) {
+  var currentGameNum = S.courtStates[index] ? S.courtStates[index].gameNum : 0;
   runAction('winner_recorded', function (state) {
     var result = Engine.recordWinner(state, index, winner);
     if (!result.changed) return { changed: false, reason: 'This game is no longer active.' };
@@ -1431,7 +1643,7 @@ function recordWinner(index, winner) {
       message: Engine.courtDisplayName(result.court) + ' — ' + names.join(' & ') + ' won! 🏆',
       summary: 'Recorded ' + names.join(' & ') + ' as winners on ' + Engine.courtDisplayName(result.court)
     };
-  });
+  }, { dedupeKey: 'court:' + index + ':winner:' + currentGameNum });
 }
 
 function resetAllCourts() {
@@ -1439,7 +1651,7 @@ function resetAllCourts() {
   runAction('courts_reset', function (state) {
     Engine.resetCourts(state);
     return { changed: true, message: 'All courts reset. Statistics preserved.', summary: 'Reset all courts and game history' };
-  }, { hostOnly: true });
+  }, { hostOnly: true, dedupeKey: 'reset_courts:' + (roomData ? roomData.revision : S.rotationRound) });
 }
 
 function resetStats() {
@@ -1447,7 +1659,7 @@ function resetStats() {
   runAction('statistics_reset', function (state) {
     Engine.resetStatistics(state);
     return { changed: true, message: 'Player statistics reset.', summary: 'Reset all statistics and matchup history' };
-  }, { hostOnly: true });
+  }, { hostOnly: true, dedupeKey: 'reset_stats:' + (roomData ? roomData.revision : S.rotationRound) });
 }
 
 function startSwap(courtIndex, team, playerIndex) {
@@ -1528,7 +1740,7 @@ function replaceCurrentPlayer(courtIndex, team, playerIndex, replacementId, expe
       message: result.outgoing.name + ' → ' + result.incoming.name + ' on court.',
       summary: 'Replaced ' + result.outgoing.name + ' with ' + result.incoming.name
     };
-  });
+  }, { dedupeKey: 'court:' + courtIndex + ':game:' + (S.courtStates[courtIndex] ? S.courtStates[courtIndex].gameNum : 0) + ':replace:' + expectedOutgoingId + ':' + replacementId });
 }
 
 function skipPlayer(courtIndex, team, playerIndex) {
@@ -1661,7 +1873,9 @@ function createSharedRoom() {
       organizerGrantId: organizerGrantId,
       status: 'active',
       revision: 0,
+      dataLayoutVersion: RoomData.LAYOUT_VERSION,
       state: Engine.normalizeState(S),
+      recentActionIds: [],
       undoStack: [],
       lastEventId: initialEvent.id,
       createdAt: FieldValue.serverTimestamp(),
@@ -1676,6 +1890,7 @@ function createSharedRoom() {
       summary: 'Created the live room from the organizer’s current game',
       actorUid: currentUser.uid,
       actorName: currentUser.displayName || currentUser.email || 'Organizer',
+      actionId: initialEvent.id,
       createdAt: FieldValue.serverTimestamp(),
       expiresAt: eventExpiry()
     });
@@ -1827,6 +2042,7 @@ function undoLastAction() {
     showToast('There is no action to undo.'); return;
   }
   if (!navigator.onLine) { showToast('Reconnect before undoing.'); return; }
+  var expectedTargetId = roomData.undoStack[roomData.undoStack.length - 1];
   var undoEventRef = fbDb.collection('roomEvents').doc();
   sharedBusy = true; syncStatus = 'syncing'; renderSessionCard();
   fbDb.runTransaction(function (transaction) {
@@ -1835,17 +2051,25 @@ function undoLastAction() {
       if (!data || data.hostUid !== currentUser.uid || data.status !== 'active') throw new Error('Organizer permission required.');
       var stack = (data.undoStack || []).slice();
       var targetId = stack[stack.length - 1];
+      if (!targetId || targetId !== expectedTargetId) throw new Error('The undo history changed. Review the latest state and try again.');
       return transaction.get(fbDb.collection('roomEvents').doc(targetId)).then(function (eventSnapshot) {
-        if (!eventSnapshot.exists || !eventSnapshot.data().beforeState) throw new Error('Undo data is no longer available.');
+        if (!eventSnapshot.exists) throw new Error('Undo data is no longer available.');
         var target = eventSnapshot.data();
+        if (!target.beforeState && !Array.isArray(target.undoPatch)) throw new Error('Undo data is no longer available.');
+        var currentState = RoomData.stateFromRoom(data, Engine);
+        var restoredState = Array.isArray(target.undoPatch)
+          ? Engine.normalizeState(RoomData.applyUndoPatch(currentState, target.undoPatch))
+          : Engine.normalizeState(target.beforeState);
         stack.pop();
         var nextRevision = (Number(data.revision) || 0) + 1;
         transaction.update(roomRef, {
-          state: Engine.normalizeState(target.beforeState),
+          dataLayoutVersion: RoomData.LAYOUT_VERSION,
+          state: restoredState,
           revision: nextRevision,
           updatedAt: FieldValue.serverTimestamp(),
           lastEventId: undoEventRef.id,
-          undoStack: stack
+          undoStack: stack,
+          recentActionIds: RoomData.appendActionId(data, undoEventRef.id)
         });
         transaction.set(undoEventRef, {
           roomId: roomId,
@@ -1854,6 +2078,7 @@ function undoLastAction() {
           summary: 'Undid: ' + target.summary,
           actorUid: currentUser.uid,
           actorName: controllerName,
+          actionId: undoEventRef.id,
           createdAt: FieldValue.serverTimestamp(),
           expiresAt: eventExpiry()
         });
@@ -1873,6 +2098,7 @@ function endSharedRoom() {
     return transaction.get(roomRef).then(function (snapshot) {
       var data = snapshot.data();
       if (!data || data.hostUid !== currentUser.uid) throw new Error('Organizer permission required.');
+      if (data.status !== 'active') throw new Error('This shared session has already ended.');
       var nextRevision = (Number(data.revision) || 0) + 1;
       transaction.update(roomRef, {
         status: 'ended',
@@ -1904,7 +2130,15 @@ function endSharedRoom() {
 }
 
 function toggleHistory() { historyOpen = !historyOpen; renderHistorySection(); }
-function toggleActivity() { activityOpen = !activityOpen; renderActivitySection(); }
+function toggleActivity() {
+  activityOpen = !activityOpen;
+  if (activityOpen) subscribeToEvents();
+  else {
+    if (eventsUnsubscribe) { eventsUnsubscribe(); eventsUnsubscribe = null; }
+    activityLoading = false;
+    renderActivitySection();
+  }
+}
 
 function formatDuration(milliseconds) {
   var totalSeconds = Math.max(0, Math.floor((Number(milliseconds) || 0) / 1000));
@@ -2016,7 +2250,10 @@ function renderSessionCard() {
     card.innerHTML = '<div class="session-top"><div><div class="session-title">Personal game</div>'
       + '<div class="session-sub">Saved only on this device · Works offline</div></div>'
       + '<span class="mode-badge">📱 Solo</span></div>'
-      + '<div class="session-actions"><button class="btn btn-primary" onclick="createSharedRoom()">🔗 Share Current Game</button></div>';
+      + (isLargeRoom() ? '<span class="large-room-badge">⚡ Large Room Mode · optimized lists</span>' : '')
+      + '<div class="session-actions"><button class="btn btn-primary" onclick="createSharedRoom()">🔗 Share Current Game</button>'
+      + '<button class="btn btn-ghost" onclick="openSessionInfoEditor()">📣 Session Info</button>'
+      + '<button class="btn btn-ghost" onclick="openDisplaySettings()">⚙ Display</button></div>';
     return;
   }
   var statusText = { connected: '● Connected', syncing: '↻ Syncing', offline: '○ Offline', error: '! Error', ended: '✓ Ended' }[syncStatus] || syncStatus;
@@ -2048,20 +2285,54 @@ function renderSessionCard() {
     + (isFullController() ? '<div class="room-player-identity">' + (player
       ? '🎾 Playing as <strong>' + esc(player.name) + '</strong> · ' + esc(Engine.skillLevelLabel(player.skillRating)) + (player.notAvailable ? ' · Taking a break' : '')
       : '🎛 Controller Only') + '</div>' : '')
+    + (isLargeRoom() ? '<span class="large-room-badge">⚡ Large Room Mode · optimized live data</span>' : '')
     + '<div class="session-actions">' + actions
+    + (isFullController() ? '<button class="btn btn-ghost" onclick="openSessionInfoEditor()">📣 Session Info</button>' : '')
+    + '<button class="btn btn-ghost" onclick="openDisplaySettings()">⚙ Display</button>'
     + '<button class="btn btn-ghost" onclick="openRoleHelp()">❓ How to Use</button>'
     + '<button class="btn btn-ghost" onclick="leaveSharedRoom()">Leave</button>'
     + '</div>'
     + (accessMode === 'player' && !isOrganizer ? '<div class="free-alert-note">Free alerts work while this app is open or running in the background. A fully closed app cannot receive alerts.</div>' : '');
 }
 
+function renderSessionInfo() {
+  var element = document.getElementById('sessionInfoSection');
+  if (!element) return;
+  var announcement = String(S.sessionAnnouncement || '');
+  var rules = String(S.sessionRules || '');
+  if (!announcement && !rules) {
+    element.innerHTML = '';
+    return;
+  }
+  var html = '<div class="card session-info-card">';
+  if (announcement) html += '<div class="announcement-banner" role="status"><strong>📣</strong><span>' + esc(announcement) + '</span></div>';
+  if (rules) html += '<details class="session-rules"><summary>📋 Session Rules</summary><div class="session-rules-copy">' + esc(rules) + '</div></details>';
+  if (isFullController()) html += '<div class="session-info-actions"><button class="btn btn-ghost btn-sm" onclick="openSessionInfoEditor()">✎ Edit Session Info</button></div>';
+  element.innerHTML = html + '</div>';
+}
+
 function renderPlayerList() {
   var element = document.getElementById('playerList');
-  if (!S.players.length) { element.innerHTML = '<div class="empty-hint">No players added yet. Enter names above.</div>'; return; }
+  var searchWrap = document.getElementById('playerSearchWrap');
+  var searchCount = document.getElementById('playerSearchCount');
+  if (!S.players.length) {
+    searchWrap.hidden = true;
+    element.innerHTML = '<div class="empty-hint">No players added yet. Enter names above.</div>';
+    return;
+  }
+  searchWrap.hidden = S.players.length < 8;
+  var filtered = S.players.filter(function (player) { return !playerSearchQuery || player.name.toLowerCase().indexOf(playerSearchQuery) !== -1; });
+  searchCount.textContent = filtered.length + '/' + S.players.length;
+  if (!filtered.length) {
+    element.innerHTML = '<div class="empty-hint">No players match “' + esc(playerSearchQuery) + '”.</div>';
+    return;
+  }
+  var visible = isLargeRoom() ? filtered.slice(0, playerVisibleLimit) : filtered;
   var locked = new Set(Engine.lockedIds(S));
   var onCourt = new Set(Engine.activeIds(S));
   var upNext = new Set(Engine.nextIds(S));
-  element.innerHTML = S.players.map(function (player, index) {
+  element.innerHTML = visible.map(function (player) {
+    var index = S.players.indexOf(player);
     var isLocked = locked.has(player.id);
     var badges = (isLocked ? '<span class="locked-badge">' + (upNext.has(player.id) ? '⏭ Up Next' : onCourt.has(player.id) ? '🔒 On Court' : '🔒 Assigned') + '</span>' : player.notAvailable ? '<span class="na-tag">⏸ Taking a Break</span>' : '')
       + (player.checkedIn ? '<span class="checkin-badge">✓ Checked In</span>' : '')
@@ -2078,7 +2349,8 @@ function renderPlayerList() {
     return '<div class="player-item' + (isLocked ? ' locked' : '') + (player.notAvailable ? ' not-avail' : '') + '">'
       + '<span class="player-name">' + (index + 1) + '. ' + esc(player.name) + '</span>'
       + '<span class="player-meta">' + badges + skill + availability + '</span>' + remove + '</div>';
-  }).join('');
+  }).join('') + (visible.length < filtered.length
+    ? '<button class="btn btn-ghost list-more" onclick="showMorePlayers()">Show ' + Math.min(LARGE_ROOM_PAGE_SIZE, filtered.length - visible.length) + ' More Players</button>' : '');
 }
 
 function renderMatchmakingMode() {
@@ -2135,10 +2407,14 @@ function renderAvailableSection() {
   if (upNextCount) html += '<span class="on-court-tag up-next-count">⏭ Up Next: ' + upNextCount + '</span>';
   if (unavailable.length) html += '<span class="na-tag">⛔ Not Available: ' + unavailable.length + '</span>';
   html += '</div>';
-  html += available.length ? '<div class="avail-chips">' + available.map(function (player) { return '<div class="avail-chip">' + esc(player.name) + '</div>'; }).join('') + '</div>'
+  var visibleAvailable = isLargeRoom() ? available.slice(0, LARGE_ROOM_CHIP_LIMIT) : available;
+  var visibleUnavailable = isLargeRoom() ? unavailable.slice(0, LARGE_ROOM_CHIP_LIMIT) : unavailable;
+  html += available.length ? '<div class="avail-chips">' + visibleAvailable.map(function (player) { return '<div class="avail-chip">' + esc(player.name) + '</div>'; }).join('')
+    + (visibleAvailable.length < available.length ? '<div class="avail-chip">+' + (available.length - visibleAvailable.length) + ' more</div>' : '') + '</div>'
     : '<div class="no-avail">No players available for rotation.</div>';
   if (unavailable.length) html += '<div class="na-chips"><div class="na-section-lbl" style="width:100%;margin-bottom:6px">⛔ Sitting Out</div>'
-    + unavailable.map(function (player) { return '<div class="na-chip">' + esc(player.name) + '</div>'; }).join('') + '</div>';
+    + visibleUnavailable.map(function (player) { return '<div class="na-chip">' + esc(player.name) + '</div>'; }).join('')
+    + (visibleUnavailable.length < unavailable.length ? '<div class="na-chip">+' + (unavailable.length - visibleUnavailable.length) + ' more</div>' : '') + '</div>';
   element.innerHTML = html + '</div>';
 }
 
@@ -2269,9 +2545,17 @@ function activitySummary(event) {
 function renderActivitySection() {
   var element = document.getElementById('activitySection');
   if (!roomId) { element.innerHTML = ''; return; }
-  var html = '<div class="card"><div class="card-title history-toggle-row" onclick="toggleActivity()"><span class="card-title-left">📝 Live Activity (' + activityEvents.length + ')</span><span>' + (activityOpen ? '▲ Hide' : '▼ Show') + '</span></div>';
-  if (activityOpen) {
-    if (!activityEvents.length) html += '<div class="empty-hint">No activity recorded yet.</div>';
+  var countLabel = activityEvents.length ? ' · ' + activityEvents.length + ' recent' : '';
+  var html = '<div class="card"><div class="card-title history-toggle-row" onclick="toggleActivity()"><span class="card-title-left">📝 Live Activity' + countLabel + '</span><span>' + (activityOpen ? '▲ Hide' : '▼ Show') + '</span></div>';
+  if (!activityOpen) {
+    html += '<div class="activity-state">Open this section to connect to recent activity.</div>';
+  } else if (activityLoading) {
+    html += '<div class="activity-state">↻ Loading recent activity…</div>';
+  } else if (activityError) {
+    html += '<div class="activity-state">' + esc(activityError) + '<button class="btn btn-ghost btn-sm" onclick="subscribeToEvents()">Try Again</button></div>';
+  } else if (!activityEvents.length) {
+    html += '<div class="empty-hint">No activity recorded yet.</div>';
+  } else {
     activityEvents.forEach(function (event) {
       var date = event.createdAt && event.createdAt.toDate ? event.createdAt.toDate() : null;
       html += '<div class="activity-item"><div><div class="activity-summary">' + esc(activitySummary(event)) + '</div><div class="activity-meta">' + esc(event.actorName || 'Controller') + '</div></div>'
@@ -2284,20 +2568,30 @@ function renderActivitySection() {
 function renderLeaderboard() {
   var card = document.getElementById('statsCard');
   var body = document.getElementById('statsBody');
+  var searchWrap = document.getElementById('standingsSearchWrap');
+  var searchCount = document.getElementById('standingsSearchCount');
   if (!S.players.length) { card.style.display = 'none'; return; }
   card.style.display = 'block';
+  searchWrap.hidden = S.players.length < 8;
   var sorted = Engine.rankedPlayers(S);
+  var filtered = sorted.filter(function (player) { return !standingsSearchQuery || player.name.toLowerCase().indexOf(standingsSearchQuery) !== -1; });
+  searchCount.textContent = filtered.length + '/' + sorted.length;
   if (!sorted.some(function (player) { return player.games > 0; })) {
     body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No games completed yet. Prepare and start a game to begin tracking stats.</div></td></tr>'; return;
   }
-  body.innerHTML = sorted.map(function (player, index) {
-    var rank = index + 1, percent = player.games ? Math.round(player.wins / player.games * 100) : 0;
+  if (!filtered.length) {
+    body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No standings match “' + esc(standingsSearchQuery) + '”.</div></td></tr>'; return;
+  }
+  var visible = isLargeRoom() ? filtered.slice(0, standingsVisibleLimit) : filtered;
+  body.innerHTML = visible.map(function (player) {
+    var rank = sorted.indexOf(player) + 1, percent = player.games ? Math.round(player.wins / player.games * 100) : 0;
     var rankClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
     var rankLabel = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank;
     return '<tr><td class="lb-rank ' + rankClass + '">' + rankLabel + '</td><td class="lb-name">' + esc(player.name) + '</td>'
       + '<td class="lb-num">' + player.games + '</td><td class="lb-win">' + player.wins + '</td><td class="lb-pct">' + (player.games ? percent + '%' : '—') + '</td>'
       + '<td class="lb-bar-cell"><div class="lb-bar-wrap"><div class="lb-bar-win" style="width:' + percent + '%"></div></div></td></tr>';
-  }).join('');
+  }).join('') + (visible.length < filtered.length
+    ? '<tr><td colspan="6"><button class="btn btn-ghost list-more" onclick="showMoreStandings()">Show ' + Math.min(LARGE_ROOM_PAGE_SIZE, filtered.length - visible.length) + ' More Players</button></td></tr>' : '');
 }
 
 function syncHostControls() {
@@ -2312,7 +2606,10 @@ function syncControlState() {
   ['playerCard', 'courtSettingsCard', 'actionControls', 'courtsSection'].forEach(function (id) {
     var root = document.getElementById(id);
     if (!root) return;
-    root.querySelectorAll('button,input,select').forEach(function (control) { control.disabled = unavailable || roleReadOnly || control.hasAttribute('data-force-disabled'); });
+    root.querySelectorAll('button,input,select').forEach(function (control) {
+      if (control.hasAttribute('data-local-control')) return;
+      control.disabled = unavailable || roleReadOnly || control.hasAttribute('data-force-disabled');
+    });
   });
   var inputRow = document.querySelector('#playerCard .input-row');
   if (inputRow) inputRow.hidden = roleReadOnly;
@@ -2332,7 +2629,11 @@ function syncControlState() {
 }
 
 function renderAll() {
+  document.body.classList.toggle('large-room-mode', isLargeRoom());
   renderSessionCard();
+  renderSessionInfo();
+  var courtDisplayTitle = document.getElementById('courtDisplayTitle');
+  if (courtDisplayTitle) courtDisplayTitle.textContent = roomData && roomData.name ? roomData.name : 'Live Courts';
   syncCourtButtons();
   renderMatchmakingMode();
   renderCourtSkillGroups();
@@ -2415,7 +2716,14 @@ document.getElementById('installBtn').addEventListener('click', function () {
   deferredPrompt.userChoice.then(function () { deferredPrompt = null; document.getElementById('installBanner').classList.remove('visible'); });
 });
 window.addEventListener('appinstalled', function () { document.getElementById('installBanner').classList.remove('visible'); showToast('App installed!'); });
+document.addEventListener('fullscreenchange', function () {
+  if (courtDisplayActive && !document.fullscreenElement) {
+    courtDisplayActive = false;
+    document.body.classList.remove('court-display-mode');
+  }
+});
 
+applyDisplayPreferences();
 renderAppVersion();
 setInterval(updateCourtTimers, 1000);
 var updateAppButton = document.getElementById('updateAppBtn');
