@@ -561,6 +561,14 @@
     return 0;
   }
 
+  function skillCompositionPenalty(state, group) {
+    if (state.matchmakingMode !== 'balanced') return 0;
+    var players = group.map(function (id) { return playerById(state, id); }).filter(Boolean);
+    if (players.length !== 4 || players.some(function (player) { return !player.skillLevelConfirmed || !normalizeSkillLevel(player.skillRating); })) return 0;
+    var beginnerCount = players.filter(function (player) { return player.skillRating === 1; }).length;
+    return beginnerCount === 0 || beginnerCount === 2 || beginnerCount === 4 ? 0 : 1;
+  }
+
   function chooseAssignment(state, ids, randomFn) {
     randomFn = randomFn || Math.random;
     if (ids.length < 4) return null;
@@ -578,6 +586,7 @@
         var selected = new Set(group);
         var projected = allPlayers.map(function (player) { return player.games + (selected.has(player.id) ? 1 : 0); });
         var spread = projected.length ? Math.max.apply(Math, projected) - Math.min.apply(Math, projected) : 0;
+        var compositionPenalty = skillCompositionPenalty(state, group);
         var pickedGames = group.reduce(function (sum, id) { return sum + playerById(state, id).games; }, 0);
         var backToBack = group.filter(function (id) {
           return playerById(state, id).lastAssignedRound === state.rotationRound;
@@ -605,6 +614,7 @@
         var opponentRepeats = opponentPairCounts.reduce(function (sum, count) { return sum + count; }, 0);
         var score = [
           spread,
+          compositionPenalty,
           pickedGames,
           skillGap,
           teammateRepeatedPairs,
