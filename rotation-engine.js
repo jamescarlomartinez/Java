@@ -8,7 +8,7 @@
   var SCHEMA_VERSION = 10;
   var SKILL_LEVELS = [
     { value: 1, key: 'beginner', label: 'Beginner', description: 'Learning rules and building consistency.' },
-    { value: 2, key: 'intermediate_plus', label: 'Intermediate & Above', description: 'Consistent rallies, positioning, and strategy through advanced play.' }
+    { value: 2, key: 'intermediate_plus', label: 'Non-Beginner', description: 'Consistent rallies, positioning, and strategy through advanced play.' }
   ];
   var SKILL_GROUPS = ['any', 'beginner', 'intermediate_plus'];
 
@@ -34,7 +34,7 @@
   function skillGroupLabel(value) {
     value = normalizeSkillGroup(value);
     if (value === 'beginner') return 'Beginner';
-    if (value === 'intermediate_plus') return 'Intermediate & Above';
+    if (value === 'intermediate_plus') return 'Non-Beginner';
     return 'Any level';
   }
 

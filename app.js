@@ -2,7 +2,7 @@
 
 var Engine = window.PickleballRotation;
 var RoomData = window.PickleballRoomData;
-var APP_VERSION = '3.11.0';
+var APP_VERSION = '3.11.1';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -61,7 +61,7 @@ var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v8';
+var ROLE_HELP_VERSION = 'v9';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -83,7 +83,7 @@ var ROLE_HELP = {
     title: 'Player Check-In · How to Use',
     copy: 'Use this access type to manage only your own player entry.',
     steps: [
-      'Choose your roster name, or add yourself, then select Beginner or Intermediate & Above.',
+      'Choose your roster name, or add yourself, then select Beginner or Non-Beginner.',
       'Use the Available, On Court, Up Next, and Taking a Break labels to understand your current status.',
       'In an Up Next panel, check your court, partner, opponents, and the court’s skill designation.',
       'Tap Enable Alerts. Your free Up Next alert arrives as soon as the controller prepares your lineup while the app is open or running.',
@@ -127,7 +127,7 @@ var ROLE_HELP = {
       'Set each court’s optional time limit under Court Names, Skill & Timer. The active match keeps the limit it had when Start Game was tapped.',
       'When a countdown reaches zero, use the existing Team A Won or Team B Won button after checking the real-world result; the app does not track scores.',
       'Use custom court names, skill designations, Replace, team swaps, Player Tools, alerts, Session Summary, and CSV export as needed.',
-      'On Any courts, Skill Balanced treats two-and-two mixed games and all-one-level games as equally balanced. A mixed two-and-two game places one Beginner and one Intermediate & Above player on each team.',
+      'On Any courts, Skill Balanced treats two-and-two mixed games and all-one-level games as equally balanced. A mixed two-and-two game places one Beginner and one Non-Beginner player on each team.',
       'If the fairest four players have a one-and-three skill mix, the app uses the closest possible teams instead of leaving the court empty.',
       'Use QR & Links to explain and share Player Check-In, View Only, or Controller access.',
       'Use player and standings search, Court Display, display preferences, Session Rules, and announcements for larger sessions. Large Room Mode activates automatically at 50 players.',

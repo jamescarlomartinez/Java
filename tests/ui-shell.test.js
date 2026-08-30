@@ -89,7 +89,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v27-court-time-limits/);
+  assert.match(serviceWorker, /pickleball-v28-non-beginner-label/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -135,7 +135,8 @@ test('two-level court designation controls and eligibility badges are present', 
   assert.match(app, /Engine\.courtPreparationOrder/);
   assert.match(app, /Engine\.eligibleIdsForCourt/);
   assert.match(app, /court-skill-badge/);
-  assert.match(app, /Intermediate & Above/);
+  assert.match(app, /Non-Beginner/);
+  assert.doesNotMatch(app, /Intermediate & Above/);
   assert.doesNotMatch(app, /Expert \/ Pro/);
 });
 
@@ -147,7 +148,7 @@ test('each shared role has context help and QR access summaries', () => {
   assert.match(app, /❓ How to Use/);
   assert.match(app, /pickleballHelpSeen_/);
   assert.match(app, /accessRoleSummary/);
-  assert.match(app, /var ROLE_HELP_VERSION = 'v8'/);
+  assert.match(app, /var ROLE_HELP_VERSION = 'v9'/);
   assert.match(app, /Prepare Courts & Up Next/);
   assert.match(app, /prepared lineup moves into the main court view/);
   assert.match(app, /ask a controller to edit or remove your prepared assignment/i);

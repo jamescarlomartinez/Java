@@ -1,4 +1,4 @@
-const CACHE = 'pickleball-v27-court-time-limits';
+const CACHE = 'pickleball-v28-non-beginner-label';
 const ASSETS = [
   './',
   './index.html',

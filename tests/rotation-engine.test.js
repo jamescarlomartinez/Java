@@ -106,7 +106,7 @@ test('schema-6 migration forces every existing numeric level to be selected agai
 
 test('new schema exposes only the two ordered skill levels and court groups', () => {
   assert.deepEqual(Engine.SKILL_LEVELS.map(level => level.value), [1, 2]);
-  assert.deepEqual(Engine.SKILL_LEVELS.map(level => level.label), ['Beginner', 'Intermediate & Above']);
+  assert.deepEqual(Engine.SKILL_LEVELS.map(level => level.label), ['Beginner', 'Non-Beginner']);
   assert.deepEqual(Engine.SKILL_GROUPS, ['any', 'beginner', 'intermediate_plus']);
   assert.ok(Engine.SKILL_LEVELS.every(level => level.description.length > 20));
 });
@@ -285,7 +285,7 @@ test('a migrated player must confirm their provisional level at check-in', () =>
   const confirmed = Engine.checkInPlayer(state, 'p0', 'uid-amy', 'Amy phone', 2);
   assert.equal(confirmed.changed, true);
   assert.equal(confirmed.player.skillLevelConfirmed, true);
-  assert.equal(Engine.skillLevelLabel(confirmed.player.skillRating), 'Intermediate & Above');
+  assert.equal(Engine.skillLevelLabel(confirmed.player.skillRating), 'Non-Beginner');
 });
 
 test('player self check-in owns one roster entry and controls only its availability and skill', () => {
