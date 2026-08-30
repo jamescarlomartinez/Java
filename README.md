@@ -13,7 +13,7 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
   - `?room=<id>&mode=player` lets a player choose an existing roster name or enroll themselves, check in, take a break, return, or check out.
   - `?room=<id>&mode=view` opens a simplified live read-only board.
 - Social Fair remains the default rotation style. After game-count fairness, it prioritizes never-used teammates and opponents so the roster does not remain in fixed groups of four.
-- **Skill Balanced** uses **Beginner** and **Intermediate & Above** to minimize the team-skill gap before applying the same matchup-mixing priorities.
+- **Skill Balanced** keeps game-count fairness first, prefers even Any-court compositions (2–2 mixed or four of one level), minimizes the team-skill gap, then applies the same matchup-mixing priorities. Odd 1–3 groups remain playable as the closest-balanced fallback.
 - Every existing pre-v3.4 player is reset to an unconfirmed level. They may play on Any courts, but must choose one of the current levels before using a strict skill-designated court.
 - Controllers can designate every court as **Any level**, **Beginner**, or **Intermediate & Above**. Strict courts never mix levels and are filled before Any courts.
 - Controllers can give courts recognizable custom names. Names appear consistently in live court cards, alerts, history, activity, summaries, and exports.

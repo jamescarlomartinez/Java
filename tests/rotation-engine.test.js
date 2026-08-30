@@ -431,6 +431,95 @@ test('balanced mode minimizes team skill gap after fairness criteria', () => {
   const teamTotal = team => team.reduce((sum, id) => sum + Engine.playerSkillWeight(Engine.playerById(state, id)), 0);
   assert.equal(teamTotal(assignment.teamA), 3);
   assert.equal(teamTotal(assignment.teamB), 3);
+  const teamRatings = team => team.map(id => Engine.playerById(state, id).skillRating).sort();
+  assert.deepEqual(teamRatings(assignment.teamA), [1, 2]);
+  assert.deepEqual(teamRatings(assignment.teamB), [1, 2]);
+});
+
+test('balanced mode accepts all-Beginner and all-Intermediate matches', () => {
+  [1, 2].forEach(rating => {
+    const state = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
+    state.matchmakingMode = 'balanced';
+    state.players.forEach(player => { player.skillRating = rating; });
+    const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
+    assert.ok(assignment.teamA.concat(assignment.teamB).every(id => Engine.playerById(state, id).skillRating === rating));
+  });
+});
+
+test('balanced mode prefers an even skill composition when projected fairness is equal', () => {
+  const state = stateWithPlayers(['Beginner 1', 'Beginner 2', 'Beginner 3', 'Upper 1', 'Upper 2'], 1);
+  state.matchmakingMode = 'balanced';
+  [1, 1, 1, 2, 2].forEach((rating, index) => { state.players[index].skillRating = rating; });
+
+  const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
+  const ratings = assignment.teamA.concat(assignment.teamB).map(id => Engine.playerById(state, id).skillRating).sort();
+  assert.deepEqual(ratings, [1, 1, 2, 2]);
+});
+
+test('balanced mode allows an odd skill mix as the closest fallback', () => {
+  const state = stateWithPlayers(['Beginner', 'Upper 1', 'Upper 2', 'Upper 3'], 1);
+  state.matchmakingMode = 'balanced';
+  [1, 2, 2, 2].forEach((rating, index) => { state.players[index].skillRating = rating; });
+
+  const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
+  const teamTotal = team => team.reduce((sum, id) => sum + Engine.playerSkillWeight(Engine.playerById(state, id)), 0);
+  assert.equal(Math.abs(teamTotal(assignment.teamA) - teamTotal(assignment.teamB)), 1);
+  assert.equal(new Set(assignment.teamA.concat(assignment.teamB)).size, 4);
+});
+
+test('balanced mode does not sacrifice a mixed team split for unused same-level partners', () => {
+  const state = stateWithPlayers(['Beginner 1', 'Beginner 2', 'Upper 1', 'Upper 2'], 1);
+  state.matchmakingMode = 'balanced';
+  [1, 1, 2, 2].forEach((rating, index) => { state.players[index].skillRating = rating; });
+  [['p0', 'p2'], ['p0', 'p3'], ['p1', 'p2'], ['p1', 'p3']].forEach(pair => {
+    state.teammateCounts[Engine.pairKey(...pair)] = 5;
+  });
+
+  const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
+  const teamRatings = team => team.map(id => Engine.playerById(state, id).skillRating).sort();
+  assert.deepEqual(teamRatings(assignment.teamA), [1, 2]);
+  assert.deepEqual(teamRatings(assignment.teamB), [1, 2]);
+});
+
+test('Social Fair remains free to prefer unused same-level partners', () => {
+  const state = stateWithPlayers(['Beginner 1', 'Beginner 2', 'Upper 1', 'Upper 2'], 1);
+  [1, 1, 2, 2].forEach((rating, index) => { state.players[index].skillRating = rating; });
+  [['p0', 'p2'], ['p0', 'p3'], ['p1', 'p2'], ['p1', 'p3']].forEach(pair => {
+    state.teammateCounts[Engine.pairKey(...pair)] = 5;
+  });
+
+  const assignment = Engine.chooseAssignment(state, Engine.availableIds(state), () => 0.5);
+  const teamRatings = team => team.map(id => Engine.playerById(state, id).skillRating);
+  assert.ok(teamRatings(assignment.teamA).every(rating => rating === teamRatings(assignment.teamA)[0]));
+  assert.ok(teamRatings(assignment.teamB).every(rating => rating === teamRatings(assignment.teamB)[0]));
+});
+
+test('balanced multi-court preparation uses preferred compositions on every Any court', () => {
+  const state = stateWithPlayers(Array.from({ length: 8 }, (_, index) => String(index + 1)), 2);
+  state.matchmakingMode = 'balanced';
+  state.players.forEach((player, index) => { player.skillRating = index < 4 ? 1 : 2; });
+
+  Engine.prepareNextGame(state, 0, () => 0.5);
+  Engine.prepareNextGame(state, 1, () => 0.5);
+  state.courtStates.forEach(court => {
+    const lineup = court.nextGame.teamA.concat(court.nextGame.teamB);
+    const beginnerCount = lineup.filter(id => Engine.playerById(state, id).skillRating === 1).length;
+    assert.ok([0, 2, 4].includes(beginnerCount));
+    const total = team => team.reduce((sum, id) => sum + Engine.playerSkillWeight(Engine.playerById(state, id)), 0);
+    assert.equal(total(court.nextGame.teamA), total(court.nextGame.teamB));
+  });
+});
+
+test('an uneven mixed-skill pool keeps every player in a fair one-court rotation', () => {
+  const state = stateWithPlayers(Array.from({ length: 8 }, (_, index) => String(index + 1)), 1);
+  state.matchmakingMode = 'balanced';
+  state.players.forEach((player, index) => { player.skillRating = index < 3 ? 1 : 2; });
+
+  completeRotationCycles(state, 20);
+
+  assert.ok(gameSpread(state) <= 1);
+  assert.ok(state.players.every(player => player.games > 0));
+  assert.ok(state.players.every(player => relationshipSets(state, state.opponentCounts).get(player.id).size > 0));
 });
 
 test('balanced mode treats an unconfirmed player as a neutral weight on Any courts', () => {
@@ -597,6 +686,7 @@ test('skill-balanced rotation preserves team balance while expanding matchup cov
   }
 
   assert.equal(largestSkillGap, 0);
+  assert.ok(gameSpread(state) <= 1);
   relationshipSets(state, state.teammateCounts).forEach(partners => assert.equal(partners.size, 7));
   relationshipSets(state, state.opponentCounts).forEach(opponents => assert.equal(opponents.size, 7));
 });

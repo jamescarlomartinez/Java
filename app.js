@@ -2,7 +2,7 @@
 
 var Engine = window.PickleballRotation;
 var RoomData = window.PickleballRoomData;
-var APP_VERSION = '3.9.0';
+var APP_VERSION = '3.10.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -60,7 +60,7 @@ var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v6';
+var ROLE_HELP_VERSION = 'v7';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -123,6 +123,8 @@ var ROLE_HELP = {
       'Tap Start Game only when the physical court is ready. Credits, waiting metrics, and the timer update at that point; matchup history updates when a winner is recorded.',
       'If a reserved player needs to leave or rest, edit or remove the Up Next lineup first.',
       'Use custom court names, skill designations, Replace, team swaps, Player Tools, alerts, Session Summary, and CSV export as needed.',
+      'On Any courts, Skill Balanced treats two-and-two mixed games and all-one-level games as equally balanced. A mixed two-and-two game places one Beginner and one Intermediate & Above player on each team.',
+      'If the fairest four players have a one-and-three skill mix, the app uses the closest possible teams instead of leaving the court empty.',
       'Use QR & Links to explain and share Player Check-In, View Only, or Controller access.',
       'Use player and standings search, Court Display, display preferences, Session Rules, and announcements for larger sessions. Large Room Mode activates automatically at 50 players.',
       'Live Activity connects only while opened. Repeated actions are safely deduplicated, and Undo preserves unrelated later check-ins by restoring only changed fields.',
@@ -2359,7 +2361,7 @@ function renderMatchmakingMode() {
   });
   var help = document.getElementById('matchmakingHelp');
   if (help) help.textContent = S.matchmakingMode === 'balanced'
-    ? 'Balances team skill after fair game counts, then mixes partners and opponents.'
+    ? 'Keeps fair game counts first, prefers even skill compositions, then balances teams and expands matchup variety.'
     : 'Prioritizes fair game counts, then new partners and opponents before waiting-time tie-breakers.';
   var readOnly = document.getElementById('matchmakingReadOnly');
   if (readOnly) readOnly.textContent = S.matchmakingMode === 'balanced' ? '⭐ Skill Balanced' : '🤝 Social Fair';
