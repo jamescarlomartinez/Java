@@ -89,7 +89,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v26-balanced-skill-rotation/);
+  assert.match(serviceWorker, /pickleball-v27-court-time-limits/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -147,7 +147,7 @@ test('each shared role has context help and QR access summaries', () => {
   assert.match(app, /❓ How to Use/);
   assert.match(app, /pickleballHelpSeen_/);
   assert.match(app, /accessRoleSummary/);
-  assert.match(app, /var ROLE_HELP_VERSION = 'v7'/);
+  assert.match(app, /var ROLE_HELP_VERSION = 'v8'/);
   assert.match(app, /Prepare Courts & Up Next/);
   assert.match(app, /prepared lineup moves into the main court view/);
   assert.match(app, /ask a controller to edit or remove your prepared assignment/i);
@@ -194,6 +194,20 @@ test('per-court Up Next, timers, manual builder, court names, and session export
   assert.match(app, /function openSessionSummary/);
   assert.match(app, /function exportSessionCsv/);
   assert.match(app, /text\/csv/);
+});
+
+test('per-court time limits reuse the timer and settings surfaces without score tracking', () => {
+  assert.match(app, /function setCourtTimeLimit/);
+  assert.match(app, /function alertControllerToTimeLimit/);
+  assert.match(app, /Time Limit Reached/);
+  assert.match(app, /data-deadline-at/);
+  assert.match(app, /Reached Time Limit/);
+  assert.match(app, /Court Names, Skill & Timer/);
+  assert.match(html, /\.court-timer\.is-warning/);
+  assert.match(html, /\.court-timer\.is-overdue/);
+  assert.match(html, /\.court-time-select/);
+  assert.match(html, /id="toast" role="status" aria-live="polite"/);
+  assert.doesNotMatch(app, /scoreA|scoreB|Team A Score|Team B Score/);
 });
 
 test('live activity subscribes only while the section is open', () => {

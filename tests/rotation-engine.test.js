@@ -932,6 +932,58 @@ test('schema-9 migration adds bounded session information without changing games
   assert.equal(normalized.players[0].games, old.players[0].games);
 });
 
+test('schema-10 migration leaves existing active games unlimited and preserves their lineup', () => {
+  const old = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
+  old.schemaVersion = 9;
+  Object.assign(old.courtStates[0], {
+    status: 'playing', gameNum: 4, teamA: ['p0', 'p1'], teamB: ['p2', 'p3'], startedAt: 5000,
+    timeLimitMinutes: 15, activeTimeLimitMinutes: 15, deadlineAt: 905000
+  });
+  const normalized = Engine.normalizeState(old);
+  assert.equal(normalized.schemaVersion, 10);
+  assert.equal(normalized.courtStates[0].status, 'playing');
+  assert.deepEqual(normalized.courtStates[0].teamA, ['p0', 'p1']);
+  assert.equal(normalized.courtStates[0].startedAt, 5000);
+  assert.equal(normalized.courtStates[0].timeLimitMinutes, null);
+  assert.equal(normalized.courtStates[0].activeTimeLimitMinutes, null);
+  assert.equal(normalized.courtStates[0].deadlineAt, null);
+});
+
+test('time limits are normalized, snapshotted on start, and recorded with timeout status', () => {
+  assert.equal(Engine.normalizeTimeLimit(null), null);
+  assert.equal(Engine.normalizeTimeLimit(0), 1);
+  assert.equal(Engine.normalizeTimeLimit(15.4), 15);
+  assert.equal(Engine.normalizeTimeLimit(999), 120);
+
+  const early = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
+  early.courtStates[0].timeLimitMinutes = 15;
+  Engine.assignGame(early, 0, () => 0.5, 1000);
+  assert.equal(early.courtStates[0].activeTimeLimitMinutes, 15);
+  assert.equal(early.courtStates[0].deadlineAt, 901000);
+  early.courtStates[0].timeLimitMinutes = 20;
+  assert.equal(early.courtStates[0].activeTimeLimitMinutes, 15);
+  const earlyResult = Engine.recordWinner(early, 0, 'A', 600000);
+  assert.equal(earlyResult.historyEntry.timeLimitMinutes, 15);
+  assert.equal(earlyResult.historyEntry.finishedAfterTimeLimit, false);
+
+  const overdue = stateWithPlayers(['A', 'B', 'C', 'D'], 1);
+  overdue.courtStates[0].timeLimitMinutes = 10;
+  Engine.assignGame(overdue, 0, () => 0.5, 2000);
+  const overdueResult = Engine.recordWinner(overdue, 0, 'B', 602000);
+  assert.equal(overdueResult.historyEntry.timeLimitMinutes, 10);
+  assert.equal(overdueResult.historyEntry.finishedAfterTimeLimit, true);
+});
+
+test('court reset preserves future timer settings while clearing active timer snapshots', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D'], 2);
+  state.courtStates[0].timeLimitMinutes = 15;
+  state.courtStates[1].timeLimitMinutes = 30;
+  Engine.assignGame(state, 0, () => 0.5, 1000);
+  Engine.resetCourts(state);
+  assert.deepEqual(state.courtStates.map(court => court.timeLimitMinutes), [15, 30]);
+  assert.ok(state.courtStates.every(court => court.activeTimeLimitMinutes == null && court.deadlineAt == null));
+});
+
 test('session information is bounded for safe shared-room storage', () => {
   const state = Engine.createState(1);
   state.sessionAnnouncement = 'a'.repeat(300);

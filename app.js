@@ -2,11 +2,12 @@
 
 var Engine = window.PickleballRotation;
 var RoomData = window.PickleballRoomData;
-var APP_VERSION = '3.10.0';
+var APP_VERSION = '3.11.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
 var DISPLAY_PREFS_KEY = 'pickleballDisplayPreferences_v1';
+var TIMEOUT_ALERTS_KEY = 'pickleballTimeoutAlerts_v1';
 var ROOM_PARAM = 'room';
 var EVENT_LIMIT = 100;
 var LARGE_ROOM_EVENT_LIMIT = 20;
@@ -60,7 +61,7 @@ var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v7';
+var ROLE_HELP_VERSION = 'v8';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -87,11 +88,12 @@ var ROLE_HELP = {
       'In an Up Next panel, check your court, partner, opponents, and the court’s skill designation.',
       'Tap Enable Alerts. Your free Up Next alert arrives as soon as the controller prepares your lineup while the app is open or running.',
       'After the alert, prepare near the named court so play can begin promptly.',
-      'Game credit and the court timer begin only after the controller taps Start Game.',
+      'Game credit and the court timer begin only after the controller taps Start Game. A countdown shows when that court has a time limit.',
       'Use My Skill or Take a Break only when you are not on court or reserved Up Next.',
       'If you need to leave or take a break while Up Next, ask a controller to edit or remove your prepared assignment first.',
       'Use player and standings search in larger groups, and open Display Settings for larger text, high contrast, sound, or vibration preferences.',
       'Read the organizer’s announcement and Session Rules when they are provided.',
+      'If a court reaches its time limit, it stays active until a controller records the real-world winner.',
       'Follow standings, court timers, Game History, and Session Summary & Export for live and completed results.'
     ]
   },
@@ -100,7 +102,7 @@ var ROLE_HELP = {
     copy: 'Use this access type to follow the session without changing it.',
     steps: [
       'Active matches and Up Next lineups are shown separately on each court.',
-      'Read court names, skill designations, teams, elapsed timers, and status badges.',
+      'Read court names, skill designations, teams, elapsed timers or countdowns, and status badges.',
       'Players shown Up Next are reserved and cannot be placed in another lineup.',
       'After a winner is recorded, the prepared lineup moves into the main court view and waits for Start Game.',
       'Use search for a large roster, open Live Activity only when you need it, and use Court Display for a fullscreen court board.',
@@ -122,6 +124,8 @@ var ROLE_HELP = {
       'Record the current winner and verify that its prepared lineup is promoted into the main court view.',
       'Tap Start Game only when the physical court is ready. Credits, waiting metrics, and the timer update at that point; matchup history updates when a winner is recorded.',
       'If a reserved player needs to leave or rest, edit or remove the Up Next lineup first.',
+      'Set each court’s optional time limit under Court Names, Skill & Timer. The active match keeps the limit it had when Start Game was tapped.',
+      'When a countdown reaches zero, use the existing Team A Won or Team B Won button after checking the real-world result; the app does not track scores.',
       'Use custom court names, skill designations, Replace, team swaps, Player Tools, alerts, Session Summary, and CSV export as needed.',
       'On Any courts, Skill Balanced treats two-and-two mixed games and all-one-level games as equally balanced. A mixed two-and-two game places one Beginner and one Intermediate & Above player on each team.',
       'If the fairest four players have a one-and-three skill mix, the app uses the closest possible teams instead of leaving the court empty.',
@@ -199,6 +203,40 @@ function playTurnSound() {
   } catch (error) {
     console.warn('Turn sound unavailable:', error);
   }
+}
+
+function timeoutAlertsStorageKey() {
+  return TIMEOUT_ALERTS_KEY + '_' + (roomId || 'solo');
+}
+
+function timeoutAlertWasDelivered(deliveryKey) {
+  try {
+    var delivered = JSON.parse(localStorage.getItem(timeoutAlertsStorageKey()) || '[]');
+    return Array.isArray(delivered) && delivered.indexOf(deliveryKey) !== -1;
+  } catch (error) {
+    return false;
+  }
+}
+
+function markTimeoutAlertDelivered(deliveryKey) {
+  try {
+    var delivered = JSON.parse(localStorage.getItem(timeoutAlertsStorageKey()) || '[]');
+    if (!Array.isArray(delivered)) delivered = [];
+    if (delivered.indexOf(deliveryKey) === -1) delivered.push(deliveryKey);
+    localStorage.setItem(timeoutAlertsStorageKey(), JSON.stringify(delivered.slice(-60)));
+  } catch (error) {
+    console.warn('Could not remember timer alert:', error);
+  }
+}
+
+function alertControllerToTimeLimit(courtIndex, gameNum, courtName, deadlineAt) {
+  if (!isFullController()) return;
+  var deliveryKey = [courtIndex, gameNum, deadlineAt].join('_');
+  if (timeoutAlertWasDelivered(deliveryKey)) return;
+  markTimeoutAlertDelivered(deliveryKey);
+  showToast('⏰ ' + courtName + ' reached its time limit. Tap the winning team.');
+  playTurnSound();
+  if (displayPreferences.vibration && navigator.vibrate) navigator.vibrate([220, 100, 220, 100, 320]);
 }
 
 function setAuthMessage(title, copy, showGoogleButton) {
@@ -474,8 +512,8 @@ function openDisplaySettings() {
     body: '<div class="preference-list">'
       + preferenceOption('prefHighContrast', 'High contrast', 'Stronger colors and borders for easier reading.', displayPreferences.highContrast)
       + preferenceOption('prefLargeText', 'Large text', 'Increase text throughout the app.', displayPreferences.largeText)
-      + preferenceOption('prefSound', 'Turn sound', 'Play a short sound when your lineup is prepared.', displayPreferences.sound)
-      + preferenceOption('prefVibration', 'Vibration', 'Vibrate when your lineup is prepared, when supported.', displayPreferences.vibration)
+      + preferenceOption('prefSound', 'Alert sound', 'Play a short sound for lineup and controller timer alerts.', displayPreferences.sound)
+      + preferenceOption('prefVibration', 'Vibration', 'Vibrate for lineup and controller timer alerts, when supported.', displayPreferences.vibration)
       + '</div>'
   });
   [['prefHighContrast', 'highContrast'], ['prefLargeText', 'largeText'], ['prefSound', 'sound'], ['prefVibration', 'vibration']].forEach(function (entry) {
@@ -1509,6 +1547,44 @@ function setCourtSkillGroup(index, group) {
   });
 }
 
+function setCourtTimeLimit(index, value) {
+  var court = S.courtStates[index];
+  if (!court) return;
+  if (value === 'custom') {
+    askText({
+      title: 'Set ' + Engine.courtDisplayName(court) + ' Time Limit',
+      copy: 'Enter a whole number from 1 to 120 minutes. It will apply when the next game starts.',
+      value: court.timeLimitMinutes || 15,
+      maxLength: 3,
+      confirmLabel: 'Set Limit'
+    }).then(function (minutes) {
+      if (minutes == null) { renderCourtSkillGroups(); return; }
+      var parsed = Number(minutes);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 120) {
+        showToast('Enter a whole number from 1 to 120 minutes.');
+        renderCourtSkillGroups();
+        return;
+      }
+      setCourtTimeLimit(index, parsed);
+    });
+    return;
+  }
+  var limit = value === 'off' || value == null || value === '' ? null : Engine.normalizeTimeLimit(value);
+  if (court.timeLimitMinutes === limit) return;
+  var previous = court.timeLimitMinutes == null ? 'off' : court.timeLimitMinutes;
+  runAction('court_time_limit_changed', function (state) {
+    var target = state.courtStates[index];
+    if (!target) return { changed: false, reason: 'Court not found.' };
+    target.timeLimitMinutes = limit;
+    var setting = limit ? limit + ' minutes' : 'Off';
+    return {
+      changed: true,
+      message: Engine.courtDisplayName(target) + ' time limit set to ' + setting + ' for future games.',
+      summary: 'Set ' + Engine.courtDisplayName(target) + ' time limit to ' + setting
+    };
+  }, { dedupeKey: 'court:' + index + ':timer:' + previous + ':' + (limit == null ? 'off' : limit) + ':' + (roomData ? roomData.revision : S.rotationRound) });
+}
+
 function generateForCourt(index) {
   var expectedGame = S.courtStates[index] ? (Number(S.courtStates[index].gameNum) || 0) + 1 : 0;
   runAction('next_game_prepared', function (state) {
@@ -1640,10 +1716,11 @@ function recordWinner(index, winner) {
     var result = Engine.recordWinner(state, index, winner);
     if (!result.changed) return { changed: false, reason: 'This game is no longer active.' };
     var names = result.winners.map(function (id) { return Engine.playerName(state, id); });
+    var timing = result.historyEntry && result.historyEntry.finishedAfterTimeLimit ? ' after the time limit' : '';
     return {
       changed: true,
-      message: Engine.courtDisplayName(result.court) + ' — ' + names.join(' & ') + ' won! 🏆',
-      summary: 'Recorded ' + names.join(' & ') + ' as winners on ' + Engine.courtDisplayName(result.court)
+      message: Engine.courtDisplayName(result.court) + ' — ' + names.join(' & ') + ' won' + timing + '! 🏆',
+      summary: 'Recorded ' + names.join(' & ') + ' as winners on ' + Engine.courtDisplayName(result.court) + timing
     };
   }, { dedupeKey: 'court:' + index + ':winner:' + currentGameNum });
 }
@@ -2151,10 +2228,34 @@ function formatDuration(milliseconds) {
     : String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
 }
 
+function timeLimitLabel(minutes, prefix) {
+  return (prefix || '') + (minutes ? minutes + ' min' : 'No limit');
+}
+
 function updateCourtTimers() {
   document.querySelectorAll('[data-court-timer]').forEach(function (element) {
     var startedAt = Number(element.dataset.startedAt);
-    element.textContent = startedAt ? formatDuration(Date.now() - startedAt) : '—';
+    var deadlineAt = Number(element.dataset.deadlineAt);
+    var limit = Number(element.dataset.timeLimit);
+    var now = Date.now();
+    var container = element.closest('.court-timer');
+    if (!startedAt) {
+      element.textContent = '—';
+      return;
+    }
+    if (!deadlineAt || !limit) {
+      element.textContent = formatDuration(now - startedAt) + ' elapsed';
+      return;
+    }
+    var remaining = deadlineAt - now;
+    container.classList.toggle('is-warning', remaining > 0 && remaining <= 60 * 1000);
+    container.classList.toggle('is-overdue', remaining <= 0);
+    if (remaining > 0) {
+      element.textContent = formatDuration(Math.ceil(remaining / 1000) * 1000) + ' left · ' + limit + ' min max';
+      return;
+    }
+    element.textContent = 'Time Limit Reached · +' + formatDuration(now - deadlineAt);
+    alertControllerToTimeLimit(Number(element.dataset.courtIndex), Number(element.dataset.gameNum), element.dataset.courtName || 'Court', deadlineAt);
   });
 }
 
@@ -2164,12 +2265,16 @@ function sessionDisplayName() {
 
 function sessionSummaryData() {
   var timedGames = S.history.filter(function (entry) { return entry.durationMs != null && Number.isFinite(Number(entry.durationMs)); });
+  var limitGames = S.history.filter(function (entry) { return Engine.normalizeTimeLimit(entry.timeLimitMinutes); });
+  var reachedLimitGames = limitGames.filter(function (entry) { return !!entry.finishedAfterTimeLimit; });
   var totalDuration = timedGames.reduce(function (sum, entry) { return sum + Number(entry.durationMs); }, 0);
   return {
     completedGames: S.history.length,
     timedGames: timedGames.length,
     averageDuration: timedGames.length ? totalDuration / timedGames.length : null,
     longestDuration: timedGames.length ? Math.max.apply(null, timedGames.map(function (entry) { return Number(entry.durationMs); })) : null,
+    timeLimitedGames: limitGames.length,
+    reachedLimitGames: reachedLimitGames.length,
     players: Engine.rankedPlayers(S),
     courts: S.courtStates.map(function (court) {
       return {
@@ -2197,7 +2302,8 @@ function openSessionSummary() {
     copy: sessionDisplayName() + ' · Based on the recorded game history on this session.',
     body: '<div class="summary-metrics">' + metric('Players', S.players.length) + metric('Completed games', summary.completedGames)
       + metric('Average game', summary.averageDuration == null ? '—' : formatDuration(summary.averageDuration))
-      + metric('Longest game', summary.longestDuration == null ? '—' : formatDuration(summary.longestDuration)) + '</div>'
+      + metric('Longest game', summary.longestDuration == null ? '—' : formatDuration(summary.longestDuration))
+      + metric('Reached limit', summary.reachedLimitGames + ' of ' + summary.timeLimitedGames) + '</div>'
       + '<div class="summary-section"><h3>Courts</h3><div class="summary-courts">' + courtRows + '</div></div>'
       + '<div class="summary-section"><h3>Player standings</h3><div class="summary-table-wrap"><table class="summary-table"><thead><tr><th>#</th><th>Player</th><th>G</th><th>W</th><th>Win%</th></tr></thead><tbody>' + standings + '</tbody></table></div></div>'
   });
@@ -2220,18 +2326,19 @@ function csvCell(value) {
 }
 
 function exportSessionCsv() {
-  var headers = ['Record Type', 'Session', 'Player', 'Skill Level', 'Games', 'Wins', 'Win %', 'Court', 'Game', 'Started At', 'Ended At', 'Duration Seconds', 'Team A', 'Team B', 'Winner'];
+  var headers = ['Record Type', 'Session', 'Player', 'Skill Level', 'Games', 'Wins', 'Win %', 'Court', 'Game', 'Started At', 'Ended At', 'Duration Seconds', 'Time Limit Minutes', 'Reached Time Limit', 'Team A', 'Team B', 'Winner'];
   var rows = [headers];
   Engine.rankedPlayers(S).forEach(function (player) {
     rows.push(['PLAYER', sessionDisplayName(), player.name, Engine.skillLevelLabel(player.skillRating), player.games, player.wins,
-      player.games ? Math.round(player.wins / player.games * 100) : '', '', '', '', '', '', '', '', '']);
+      player.games ? Math.round(player.wins / player.games * 100) : '', '', '', '', '', '', '', '', '', '', '', '']);
   });
   S.history.slice().reverse().forEach(function (entry) {
     var teamA = entry.teamANames || (entry.teamA || []).map(function (id) { return Engine.playerName(S, id); });
     var teamB = entry.teamBNames || (entry.teamB || []).map(function (id) { return Engine.playerName(S, id); });
     rows.push(['GAME', sessionDisplayName(), '', '', '', '', '', entry.courtName || ('Court ' + entry.courtNum), entry.gameNum,
       entry.startedAt ? new Date(entry.startedAt).toISOString() : '', new Date(entry.endedAt || entry.ts || Date.now()).toISOString(),
-      entry.durationMs == null ? '' : Math.round(Number(entry.durationMs) / 1000), teamA.join(' & '), teamB.join(' & '), entry.winner === 'A' ? 'Team A' : 'Team B']);
+      entry.durationMs == null ? '' : Math.round(Number(entry.durationMs) / 1000), entry.timeLimitMinutes || '',
+      entry.timeLimitMinutes ? (entry.finishedAfterTimeLimit ? 'Yes' : 'No') : '', teamA.join(' & '), teamB.join(' & '), entry.winner === 'A' ? 'Team A' : 'Team B']);
   });
   var csv = rows.map(function (row) { return row.map(csvCell).join(','); }).join('\r\n');
   var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -2371,15 +2478,21 @@ function renderCourtSkillGroups() {
   var element = document.getElementById('courtSkillGroups');
   if (!element) return;
   var editable = isFullController();
-  element.innerHTML = '<div class="court-groups-heading"><span>Court Names & Skill</span><small>Changes apply to future lineups; prepared games keep their designation</small></div>'
+  var presetLimits = [10, 15, 20, 30];
+  element.innerHTML = '<div class="court-groups-heading"><span>Court Names, Skill & Timer</span><small>Timer changes apply when the next game starts</small></div>'
     + S.courtStates.map(function (court, index) {
       var label = Engine.skillGroupLabel(court.skillGroup);
+      var timerLabel = timeLimitLabel(court.timeLimitMinutes);
       if (!editable) {
-        return '<div class="court-group-row"><strong>' + esc(Engine.courtDisplayName(court)) + '</strong><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(label) + '</span></div>';
+        return '<div class="court-group-row"><strong>' + esc(Engine.courtDisplayName(court)) + '</strong><span class="court-skill-badge group-' + esc(court.skillGroup) + '">' + esc(label) + '</span><span class="court-time-setting">⏱ ' + esc(timerLabel) + '</span></div>';
       }
       return '<div class="court-group-row is-editable"><button class="court-name-button" onclick="renameCourt(' + index + ')" aria-label="Rename ' + esc(Engine.courtDisplayName(court)) + '"><span>' + esc(Engine.courtDisplayName(court)) + '</span><small>✎ Rename</small></button><select class="court-group-select" aria-label="' + esc(Engine.courtDisplayName(court)) + ' skill designation" onchange="setCourtSkillGroup(' + index + ', this.value)">'
         + Engine.SKILL_GROUPS.map(function (group) { return '<option value="' + group + '"' + (court.skillGroup === group ? ' selected' : '') + '>' + esc(Engine.skillGroupLabel(group)) + '</option>'; }).join('')
-        + '</select></div>';
+        + '</select><select class="court-time-select" aria-label="' + esc(Engine.courtDisplayName(court)) + ' time limit" onchange="setCourtTimeLimit(' + index + ', this.value)">'
+        + '<option value="off"' + (court.timeLimitMinutes == null ? ' selected' : '') + '>⏱ No limit</option>'
+        + presetLimits.map(function (minutes) { return '<option value="' + minutes + '"' + (court.timeLimitMinutes === minutes ? ' selected' : '') + '>' + minutes + ' min</option>'; }).join('')
+        + (court.timeLimitMinutes && presetLimits.indexOf(court.timeLimitMinutes) === -1 ? '<option value="' + court.timeLimitMinutes + '" selected>Custom: ' + court.timeLimitMinutes + ' min</option>' : '')
+        + '<option value="custom">Custom…</option></select></div>';
     }).join('');
 }
 
@@ -2476,7 +2589,8 @@ function renderNextGamePanel(court, index, compact) {
   return '<section class="next-game-panel' + (compact ? ' is-compact' : '') + '" aria-label="Up Next on ' + esc(Engine.courtDisplayName(court)) + '">'
     + '<div class="next-game-header"><div><strong>⏭ Up Next · Game ' + next.gameNum + '</strong><span>' + (next.source === 'manual' ? 'Manual lineup' : 'Fair lineup')
     + (court.status === 'playing' ? ' · Reserved now' : ' · Timer and credits start with Start Game') + '</span></div>'
-    + '<span class="court-skill-badge group-' + esc(next.skillGroup) + '">' + esc(Engine.skillGroupLabel(next.skillGroup)) + '</span></div>'
+    + '<div class="next-game-badges"><span class="court-skill-badge group-' + esc(next.skillGroup) + '">' + esc(Engine.skillGroupLabel(next.skillGroup)) + '</span>'
+    + '<span class="court-time-setting">⏱ ' + esc(timeLimitLabel(court.timeLimitMinutes)) + '</span></div></div>'
     + nextTeamsHtml(next) + actions + '</section>';
 }
 
@@ -2484,7 +2598,12 @@ function renderCourtCard(court, index) {
   var color = Math.min(court.courtNum, 6);
   var body;
   if (court.status === 'playing') {
-    body = '<div class="court-timer" aria-label="Elapsed game time">⏱ <span data-court-timer data-started-at="' + (court.startedAt || '') + '">' + (court.startedAt ? formatDuration(Date.now() - court.startedAt) : '—') + '</span></div>'
+    var hasLimit = !!(court.activeTimeLimitMinutes && court.deadlineAt);
+    var initialRemaining = hasLimit ? Number(court.deadlineAt) - Date.now() : null;
+    var initialTimerText = !court.startedAt ? '—' : hasLimit
+      ? (initialRemaining > 0 ? formatDuration(Math.ceil(initialRemaining / 1000) * 1000) + ' left · ' + court.activeTimeLimitMinutes + ' min max' : 'Time Limit Reached · +' + formatDuration(-initialRemaining))
+      : formatDuration(Date.now() - court.startedAt) + ' elapsed';
+    body = '<div class="court-timer' + (hasLimit && initialRemaining <= 0 ? ' is-overdue' : hasLimit && initialRemaining <= 60000 ? ' is-warning' : '') + '" aria-label="' + (hasLimit ? 'Game time remaining' : 'Elapsed game time') + '">⏱ <span data-court-timer data-court-index="' + index + '" data-game-num="' + court.gameNum + '" data-court-name="' + esc(Engine.courtDisplayName(court)) + '" data-started-at="' + (court.startedAt || '') + '" data-deadline-at="' + (court.deadlineAt || '') + '" data-time-limit="' + (court.activeTimeLimitMinutes || '') + '">' + initialTimerText + '</span></div>'
       + teamsHtml(court, index, false)
       + (isFullController() ? '<div class="winner-section"><div class="winner-lbl">⚡ Who won?</div><div class="winner-row">'
         + '<button class="btn-team-a" onclick="recordWinner(' + index + ',\'A\')">🟢 Team A Won</button>'
@@ -2523,6 +2642,7 @@ function renderHistorySection() {
     var teamB = entry.teamBNames || (entry.teamB || []).map(function (id) { return Engine.playerName(S, id); });
     html += '<div class="history-item"><div class="history-meta">' + esc(entry.courtName || ('Court ' + entry.courtNum)) + ' · Game ' + entry.gameNum
       + (entry.durationMs != null ? ' · ' + formatDuration(entry.durationMs) : '') + ' · '
+      + (entry.timeLimitMinutes ? entry.timeLimitMinutes + ' min limit · ' + (entry.finishedAfterTimeLimit ? 'Limit reached · ' : 'Finished early · ') : '')
       + date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</div>'
       + '<div class="history-result"><span class="' + (entry.winner === 'A' ? 'h-winner' : 'h-loser') + '">🟢 ' + esc(teamA.join(' & ')) + '</span><span class="h-vs">vs</span>'
       + '<span class="' + (entry.winner === 'B' ? 'h-winner' : 'h-loser') + '">🔵 ' + esc(teamB.join(' & ')) + '</span></div></div>';
@@ -2643,6 +2763,7 @@ function renderAll() {
   renderPlayerList();
   renderAvailableSection();
   renderCourtsSection();
+  updateCourtTimers();
   renderLeaderboard();
   renderHistorySection();
   renderActivitySection();

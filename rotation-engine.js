@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  var SCHEMA_VERSION = 9;
+  var SCHEMA_VERSION = 10;
   var SKILL_LEVELS = [
     { value: 1, key: 'beginner', label: 'Beginner', description: 'Learning rules and building consistency.' },
     { value: 2, key: 'intermediate_plus', label: 'Intermediate & Above', description: 'Consistent rallies, positioning, and strategy through advanced play.' }
@@ -78,11 +78,21 @@
       assignmentRound: 0,
       previousLastAssigned: {},
       skillGroup: 'any',
+      timeLimitMinutes: null,
+      activeTimeLimitMinutes: null,
+      deadlineAt: null,
       stagedAt: null,
       startedAt: null,
       stagedSource: null,
       nextGame: null
     };
+  }
+
+  function normalizeTimeLimit(value) {
+    if (value == null || value === '' || value === false) return null;
+    var minutes = Number(value);
+    if (!Number.isFinite(minutes)) return null;
+    return Math.max(1, Math.min(120, Math.round(minutes)));
   }
 
   function createState(courts) {
@@ -104,7 +114,8 @@
     return state;
   }
 
-  function initCourtStates(state, count) {
+  function initCourtStates(state, count, sourceSchemaVersion) {
+    sourceSchemaVersion = sourceSchemaVersion == null ? SCHEMA_VERSION : Number(sourceSchemaVersion);
     count = Math.max(1, Math.min(6, Number(count) || 2));
     state.courts = count;
     if (!Array.isArray(state.courtStates)) state.courtStates = [];
@@ -118,6 +129,14 @@
       if (!court.previousLastAssigned) court.previousLastAssigned = {};
       if (!court.status) court.status = 'empty';
       court.skillGroup = normalizeSkillGroup(court.skillGroup);
+      court.timeLimitMinutes = sourceSchemaVersion >= 10 ? normalizeTimeLimit(court.timeLimitMinutes) : null;
+      court.activeTimeLimitMinutes = sourceSchemaVersion >= 10 ? normalizeTimeLimit(court.activeTimeLimitMinutes) : null;
+      court.deadlineAt = sourceSchemaVersion >= 10 && court.deadlineAt != null && Number.isFinite(Number(court.deadlineAt))
+        ? Number(court.deadlineAt) : null;
+      if (court.status !== 'playing') {
+        court.activeTimeLimitMinutes = null;
+        court.deadlineAt = null;
+      }
       court.stagedAt = court.stagedAt != null && Number.isFinite(Number(court.stagedAt)) ? Number(court.stagedAt) : null;
       court.startedAt = court.startedAt != null && Number.isFinite(Number(court.startedAt)) ? Number(court.startedAt) : null;
       court.stagedSource = court.stagedSource === 'manual' ? 'manual' : court.stagedSource === 'auto' ? 'auto' : null;
@@ -183,6 +202,9 @@
         assignmentRound: 0,
         previousLastAssigned: {},
         skillGroup: 'any',
+        timeLimitMinutes: null,
+        activeTimeLimitMinutes: null,
+        deadlineAt: null,
         stagedAt: null,
         startedAt: null,
         stagedSource: null,
@@ -241,7 +263,7 @@
     state.sessionRules = String(state.sessionRules || '').trim().slice(0, 1500);
     state.teammateCounts = state.teammateCounts && typeof state.teammateCounts === 'object' ? state.teammateCounts : {};
     state.opponentCounts = state.opponentCounts && typeof state.opponentCounts === 'object' ? state.opponentCounts : {};
-    initCourtStates(state, state.courts);
+    initCourtStates(state, state.courts, sourceSchemaVersion);
     var rosterIds = new Set(state.players.map(function (player) { return player.id; }));
     state.courtStates.forEach(function (court) {
       var lineup = court.teamA.concat(court.teamB);
@@ -710,6 +732,9 @@
     court.assignmentRound = state.rotationRound;
     court.previousLastAssigned = {};
     court.startedAt = Number(now) || Date.now();
+    court.activeTimeLimitMinutes = normalizeTimeLimit(court.timeLimitMinutes);
+    court.deadlineAt = court.activeTimeLimitMinutes
+      ? court.startedAt + court.activeTimeLimitMinutes * 60 * 1000 : null;
     court.stagedAt = null;
     court.stagedSource = null;
     court.nextGame = null;
@@ -767,7 +792,7 @@
     incrementPair(state.teammateCounts, court.teamB[0], court.teamB[1]);
     court.teamA.forEach(function (a) { court.teamB.forEach(function (b) { incrementPair(state.opponentCounts, a, b); }); });
     var endedAt = Number(now) || Date.now();
-    state.history.unshift({
+    var historyEntry = {
       courtNum: court.courtNum,
       courtName: courtDisplayName(court),
       gameNum: court.gameNum,
@@ -779,8 +804,13 @@
       startedAt: court.startedAt,
       endedAt: endedAt,
       durationMs: court.startedAt ? Math.max(0, endedAt - court.startedAt) : null,
+      timeLimitMinutes: normalizeTimeLimit(court.activeTimeLimitMinutes),
+      finishedAfterTimeLimit: !!(court.deadlineAt && endedAt >= court.deadlineAt),
       ts: endedAt
-    });
+    };
+    state.history.unshift(historyEntry);
+    court.activeTimeLimitMinutes = null;
+    court.deadlineAt = null;
     state.history = state.history.slice(0, 100);
     if (court.nextGame) {
       court.status = 'empty';
@@ -791,7 +821,7 @@
       court.previousLastAssigned = {};
       court.startedAt = null;
     }
-    return { changed: true, winners: winners.slice(), court: court };
+    return { changed: true, winners: winners.slice(), court: court, historyEntry: historyEntry };
   }
 
   function replacePlayer(state, courtIndex, team, playerIndex, replacementId) {
@@ -828,6 +858,7 @@
   function resetCourts(state) {
     var skillGroups = state.courtStates.map(function (court) { return normalizeSkillGroup(court.skillGroup); });
     var courtNames = state.courtStates.map(function (court) { return courtDisplayName(court); });
+    var timeLimits = state.courtStates.map(function (court) { return normalizeTimeLimit(court.timeLimitMinutes); });
     state.history = [];
     state.teammateCounts = {};
     state.opponentCounts = {};
@@ -836,6 +867,7 @@
     state.courtStates.forEach(function (court, index) {
       court.skillGroup = skillGroups[index] || 'any';
       court.name = courtNames[index] || ('Court ' + (index + 1));
+      court.timeLimitMinutes = timeLimits[index];
     });
     return state;
   }
@@ -869,6 +901,7 @@
     skillLevelLabel: skillLevelLabel,
     normalizeSkillLevel: normalizeSkillLevel,
     normalizeSkillGroup: normalizeSkillGroup,
+    normalizeTimeLimit: normalizeTimeLimit,
     skillGroupLabel: skillGroupLabel,
     courtDisplayName: courtDisplayName,
     playerSkillWeight: playerSkillWeight,
