@@ -1,10 +1,11 @@
-const CACHE = 'pickleball-v28-non-beginner-label';
+const CACHE = 'pickleball-v29-tabbed-live-sync';
 const ASSETS = [
   './',
   './index.html',
   './app.js',
   './rotation-engine.js',
   './room-data.js',
+  './live-sync.js',
   './vendor/qrcode.js',
   './manifest.json',
   './icon-192.png',

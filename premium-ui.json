@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "product": "Pickleball Game Rotation",
+  "identity": "night-court-scoreboard",
+  "canonicalSources": {
+    "tokens": "index.html",
+    "design": "DESIGN.md",
+    "uxContract": "UX-CONTRACT.md"
+  },
+  "navigation": {
+    "defaultTab": "game",
+    "sessionPersistence": "page-lifetime",
+    "tabs": ["game", "players", "results", "activity", "session"],
+    "mobile": "fixed-bottom-safe-area",
+    "desktop": "sticky-top-rail"
+  },
+  "layers": {
+    "sticky": 200,
+    "header": 400,
+    "auth": 1000,
+    "dialog": 1200,
+    "toast": 1400
+  },
+  "qualityGates": {
+    "minimumTouchTargetPx": 44,
+    "responsiveWidthsPx": [320, 375, 428],
+    "zoomPercent": 200,
+    "ariaTabs": true,
+    "appOwnedConfirmation": true,
+    "serverConfirmedLiveStatus": true
+  }
+}

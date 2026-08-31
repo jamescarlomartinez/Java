@@ -34,9 +34,22 @@
       --wait-bg: #1a1a2e;
       --wait-border: #3a3a60;
       --wait-text: #a0a0cc;
+      --focus-ring: #b7f7d5;
+      --scroll-track: #0a1812;
+      --scroll-thumb: #32714d;
+      --z-sticky: 120;
+      --z-header: 400;
+      --z-auth: 500;
+      --z-dialog: 600;
+      --z-toast: 900;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    html { font-size: 16px; }
+    html { font-size: 16px; scrollbar-color: var(--scroll-thumb) var(--scroll-track); scrollbar-width: thin; scroll-padding-bottom: 96px; }
+    * { scrollbar-color: var(--scroll-thumb) var(--scroll-track); scrollbar-width: thin; }
+    *::-webkit-scrollbar { width: 9px; height: 9px; }
+    *::-webkit-scrollbar-track { background: var(--scroll-track); }
+    *::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border: 2px solid var(--scroll-track); border-radius: 999px; }
+    *::-webkit-scrollbar-thumb:hover { background: var(--primary-light); }
     body {
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       background: var(--bg); color: var(--text);
@@ -48,7 +61,7 @@
       background: linear-gradient(160deg, #1b4332 0%, #2d6a4f 60%, #1b4332 100%);
       border-bottom: 3px solid var(--accent);
       padding: 12px 16px 10px;
-      position: sticky; top: 0; z-index: 200;
+      position: sticky; top: 0; z-index: var(--z-header);
       box-shadow: 0 3px 16px rgba(0,0,0,.5);
       display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
     }
@@ -132,11 +145,17 @@
     .btn-reset    { background: #263a30; color: var(--text-dim); border: 1px solid var(--border); }
     .btn-sm       { padding: 7px 13px; font-size: 0.8rem; border-radius: 8px; }
     .btn-block    { width: 100%; padding: 15px; font-size: 1rem; border-radius: 12px; }
+    .btn:hover:not(:disabled), .btn-signout:hover:not(:disabled), .app-tab:hover:not(:disabled), .search-clear:hover:not(:disabled) { filter: brightness(1.12); }
+    .btn:focus-visible, .btn-signout:focus-visible, .app-tab:focus-visible, .search-clear:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+      outline: 3px solid var(--focus-ring); outline-offset: 2px;
+    }
+    .btn:disabled, .btn-signout:disabled, .app-tab:disabled, .search-clear:disabled { opacity: .48; cursor: not-allowed; transform: none; filter: none; }
 
     /* ── PLAYER LIST ── */
-    .search-control { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .search-control { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; margin-top: 10px; }
     .search-input { width: 100%; min-height: 44px; padding: 10px 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 9px; font: inherit; outline: none; }
     .search-input:focus { border-color: var(--primary-light); box-shadow: 0 0 0 2px rgba(109,207,160,.15); }
+    .search-clear { width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 9px; background: var(--card2); color: var(--text-dim); cursor: pointer; font: inherit; font-weight: 900; }
     .search-result-count { color: var(--text-muted); font-size: .7rem; white-space: nowrap; }
     .list-more { width: 100%; min-height: 44px; margin-top: 4px; }
     .player-list { margin-top: 10px; max-height: 330px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
@@ -367,8 +386,8 @@
     .install-banner-text strong { color: var(--accent); }
 
     /* Toast */
-    .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(80px); background: #1b4332; color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 0.88rem; font-weight: 700; box-shadow: 0 4px 20px rgba(0,0,0,.5); border: 1px solid var(--primary-light); transition: transform .3s cubic-bezier(.34,1.56,.64,1); z-index: 1000; text-align: center; max-width: 88vw; pointer-events: none; }
-    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(80px); opacity: 0; visibility: hidden; background: #1b4332; color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 0.88rem; font-weight: 700; box-shadow: 0 4px 20px rgba(0,0,0,.5); border: 1px solid var(--primary-light); transition: transform .3s cubic-bezier(.34,1.56,.64,1), opacity .2s ease; z-index: var(--z-toast); text-align: center; max-width: 88vw; pointer-events: none; }
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; }
 
     /* ── OFFLINE BAR ── */
     .offline-bar { display: none; background: #2a1400; color: #f4a261; padding: 7px 14px; text-align: center; font-size: 0.8rem; font-weight: 700; border-bottom: 1px solid rgba(244,162,97,.35); }
@@ -406,7 +425,7 @@
     .swap-target-btn { font-size: 0.68rem !important; padding: 2px 10px !important; border-radius: 6px !important; background: rgba(82,183,136,.18) !important; border: 1px solid rgba(82,183,136,.45) !important; color: #6dffb0 !important; cursor: pointer; transition: all .15s; white-space: nowrap; font-weight: 800 !important; }
 
     /* ── AUTH OVERLAY ── */
-    .auth-overlay { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; }
+    .auth-overlay { position: fixed; inset: 0; z-index: var(--z-auth); background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; }
     .auth-overlay.hidden { display: none; }
     .auth-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 32px 28px; max-width: 340px; width: 100%; text-align: center; }
     .auth-logo { height: 52px; width: auto; border-radius: 8px; margin-bottom: 20px; }
@@ -449,7 +468,7 @@
     .preference-option span { display: grid; gap: 2px; font-weight: 800; }
     .preference-option small { color: var(--text-muted); font-weight: 600; line-height: 1.3; }
     .preference-option input { width: 22px; height: 22px; accent-color: var(--primary-light); flex-shrink: 0; }
-    .modal-textarea { min-height: 104px; resize: vertical; line-height: 1.45; }
+    .modal-textarea { min-height: 132px; resize: none; line-height: 1.45; }
 
     /* ── ACTIVITY ── */
     .activity-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 9px 0; border-bottom: 1px solid rgba(42,90,62,.3); }
@@ -467,9 +486,15 @@
     body.court-display-mode { padding-bottom: 0; }
     body.court-display-mode .app-header,
     body.court-display-mode .offline-bar,
-    body.court-display-mode .container > *:not(#courtsSection) { display: none !important; }
+    body.court-display-mode .sync-recovery-bar,
+    body.court-display-mode .app-tabs,
+    body.court-display-mode .container > *:not(.app-tab-panels),
+    body.court-display-mode .app-tab-panel:not(#panel-game),
+    body.court-display-mode #panel-game > *:not(#courtsSection) { display: none !important; }
     body.court-display-mode .court-display-bar { display: flex; }
     body.court-display-mode .container { width: 100%; max-width: none; padding: 70px 12px 12px; }
+    body.court-display-mode .app-tab-panels,
+    body.court-display-mode #panel-game { display: block !important; }
     body.court-display-mode #courtsSection { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); align-items: start; gap: 12px; }
     body.court-display-mode .court-card { margin: 0; }
     body.court-display-mode .tp-actions,
@@ -479,7 +504,7 @@
     body.large-room-mode .status-playing { animation: none; }
 
     /* ── MODAL / PICKER ── */
-    .modal-overlay { position: fixed; inset: 0; z-index: 10000; display: none; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.72); padding: 16px; }
+    .modal-overlay { position: fixed; inset: 0; z-index: var(--z-dialog); display: none; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.72); padding: 16px; }
     .modal-overlay.visible { display: flex; }
     .modal-card { width: 100%; max-width: 560px; max-height: min(88dvh, 760px); overflow: hidden; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: 0 18px 60px rgba(0,0,0,.55); }
     .modal-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
@@ -576,15 +601,69 @@
     .app-footer .btn { min-height: 34px; padding: 7px 11px; font-size: .72rem; }
     .app-footer .update-available { color: #092419; background: var(--primary-light); border-color: var(--primary-light); }
 
+    /* ── TABBED APP SHELL ── */
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .app-tabs { margin: 0 0 12px; z-index: var(--z-sticky); }
+    .app-tab-list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; padding: 6px; border: 1px solid var(--border); border-radius: 13px; background: rgba(13,31,23,.96); box-shadow: 0 8px 24px rgba(0,0,0,.22); }
+    .app-tab { min-width: 0; min-height: 48px; display: grid; grid-template-columns: auto 1fr; place-items: center; align-content: center; gap: 6px; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--text-muted); font: inherit; font-size: .78rem; font-weight: 850; cursor: pointer; }
+    .app-tab > span:first-child { font-size: 1rem; }
+    .app-tab.is-selected { color: #10271b; background: var(--primary-light); border-color: #aaf2cb; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+    .app-tab-panel[hidden] { display: none !important; }
+    .app-tab-panel { min-width: 0; scroll-margin: 96px 0; }
+    .game-status-card { padding: 13px; }
+    .game-status-card .card-title { margin-bottom: 9px; }
+    .table-scroll { max-width: 100%; overflow-x: auto; scrollbar-gutter: stable; border-radius: 8px; }
+    .sync-recovery-bar { position: fixed; top: 86px; left: 50%; width: min(calc(100% - 20px), 820px); transform: translateX(-50%); z-index: calc(var(--z-header) - 1); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--warn); border-radius: 11px; background: #2d2417; color: #ffe0b7; box-shadow: 0 8px 25px rgba(0,0,0,.45); }
+    .sync-recovery-bar[hidden] { display: none; }
+    .sync-recovery-bar > div { min-width: 0; display: grid; gap: 2px; }
+    .sync-recovery-bar strong { font-size: .8rem; }
+    .sync-recovery-bar span { color: #d8b98e; font-size: .69rem; line-height: 1.35; }
+    body.sync-degraded .container { padding-top: 72px; }
+    .preparation-feedback { margin-bottom: 12px; padding: 11px 12px; border: 1px solid var(--warn); border-radius: 11px; background: rgba(244,162,97,.1); color: #ffd3a8; font-size: .76rem; line-height: 1.45; }
+    .preparation-feedback[hidden] { display: none; }
+    .preparation-feedback strong { color: var(--accent); }
+    .preparation-feedback ul { margin: 7px 0 0; padding-left: 20px; }
+    .preparation-feedback li + li { margin-top: 4px; }
+    .live-data-note { color: var(--text-muted); font-size: .65rem; font-weight: 700; }
+    .session-command-card .card-title { margin-bottom: 10px; }
+    .session-command-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .session-command-grid .btn { min-height: 46px; white-space: normal; }
+    .session-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .session-action-grid .btn { min-height: 46px; white-space: normal; }
+    .session-danger-zone { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(230,57,70,.35); }
+    .session-danger-zone > strong { display: block; margin-bottom: 8px; color: #ff9ba5; font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: .8px; }
+    .session-danger-title { margin-bottom: 8px; color: #ff9ba5; font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: .8px; }
+    .session-danger-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .session-danger-actions .btn { min-height: 44px; white-space: normal; }
+    .sync-detail { margin-top: 5px; color: var(--text-muted); font-size: .68rem; line-height: 1.35; }
+    .sync-badge.live { background: rgba(52,211,153,.13); color: #7fffc2; }
+    .sync-badge.connecting, .sync-badge.reconnecting, .sync-badge.syncing { background: rgba(244,162,97,.13); color: #ffc98c; }
+
+    @media (min-width: 621px) {
+      .app-tabs { position: sticky; top: 88px; }
+      body.sync-degraded .app-tabs { top: 158px; }
+    }
+
     @media (min-width: 620px) {
       .modal-overlay { align-items: center; }
       .access-tabs { grid-template-columns: repeat(3, 1fr); }
       .access-tab { text-align: center; }
     }
     @media (max-width: 620px) {
+      body { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
+      .container { padding-bottom: 8px; }
+      .app-tabs { position: fixed; inset: auto 0 0; margin: 0; padding: 7px 8px calc(7px + env(safe-area-inset-bottom)); background: rgba(8,24,17,.97); border-top: 1px solid var(--border); box-shadow: 0 -8px 28px rgba(0,0,0,.45); z-index: var(--z-header); }
+      .app-tab-list { padding: 0; gap: 2px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+      .app-tab { min-height: 58px; grid-template-columns: 1fr; grid-template-rows: 24px auto; gap: 1px; padding: 5px 2px; border-radius: 10px; font-size: clamp(.58rem, 2.7vw, .7rem); letter-spacing: -.1px; }
+      .app-tab > span:first-child { font-size: 1.08rem; line-height: 1; }
+      .app-footer { padding-bottom: 10px; }
+      .toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
+      .sync-recovery-bar { top: 82px; align-items: stretch; }
+      .sync-recovery-bar .btn { flex-shrink: 0; }
       .court-group-row { grid-template-columns: minmax(0, 1fr) minmax(118px, .8fr); }
       .court-name-button, .court-group-row > strong { grid-column: 1 / -1; }
       .stats-row { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+      .session-action-grid { grid-template-columns: 1fr; }
       .player-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
       .player-name { grid-column: 1; grid-row: 1; }
       .player-meta { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; padding-top: 2px; padding-right: 42px; }
@@ -611,6 +690,8 @@
       .lb-header-actions .btn { flex: 1; min-height: 44px; }
     }
     @media (max-width: 360px) {
+      .session-command-grid, .session-danger-actions { grid-template-columns: 1fr; }
+      .app-tab { font-size: .57rem; }
       .session-top { flex-wrap: wrap; }
       .session-actions { grid-template-columns: 1fr; }
       .stats-row { display: grid; grid-template-columns: 1fr 1fr; }
@@ -638,7 +719,7 @@
     <img class="auth-logo" src="./logo.png?v=2" alt="" onerror="this.style.display='none'">
     <div class="auth-title">Pickleball Game Rotation</div>
     <div class="auth-sub">Sign in with your Gmail account to access the app.</div>
-    <button class="btn-google" id="signInBtn">
+    <button class="btn-google" id="signInBtn" type="button" disabled>
       <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
       Sign in with Google
     </button>
@@ -657,13 +738,17 @@
     <div class="header-subtitle">by James Martinez</div>
   </div>
   <div id="signOutWrap" style="display:none">
-    <button class="btn-signout" id="signOutBtn" title="Sign out">
+    <button class="btn-signout" id="signOutBtn" type="button" aria-label="Sign out" disabled>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
     </button>
   </div>
 </header>
 
 <div class="offline-bar" id="offlineBar">📶 You're offline — all data is saved locally</div>
+<div class="sync-recovery-bar" id="syncRecoveryBar" role="status" aria-live="polite" hidden>
+  <div><strong id="syncRecoveryTitle">Reconnecting to live game…</strong><span id="syncRecoveryCopy">Your last confirmed game remains visible.</span></div>
+  <button class="btn btn-ghost btn-sm" id="syncRetryBtn" type="button" disabled>Retry Now</button>
+</div>
 <div class="turn-alert" id="turnAlert" role="alert" aria-live="assertive">
   <div><div class="turn-alert-title"></div><div class="turn-alert-copy"></div></div>
   <button class="turn-alert-close" type="button" onclick="dismissTurnAlert()" aria-label="Dismiss turn alert">✕</button>
@@ -674,7 +759,7 @@
   <!-- Install banner -->
   <div class="install-banner" id="installBanner">
     <div class="install-banner-text"><strong>Install App</strong><br>Add to your home screen for quick access!</div>
-    <button class="btn btn-accent btn-sm" id="installBtn">Install</button>
+    <button class="btn btn-accent btn-sm" id="installBtn" type="button" disabled>Install</button>
     <button class="btn btn-ghost btn-sm" onclick="document.getElementById('installBanner').classList.remove('visible')">✕</button>
   </div>
 
@@ -684,6 +769,41 @@
 
   <!-- Message -->
   <div class="msg-box" id="msgBox"></div>
+
+  <nav class="app-tabs" aria-label="Game sections">
+    <div class="app-tab-list" id="appTabList" role="tablist" aria-orientation="horizontal">
+      <button class="app-tab is-selected" id="tab-game" type="button" role="tab" aria-selected="true" aria-controls="panel-game" tabindex="0" data-app-tab="game" disabled><span aria-hidden="true">🏓</span><span>Game</span></button>
+      <button class="app-tab" id="tab-players" type="button" role="tab" aria-selected="false" aria-controls="panel-players" tabindex="-1" data-app-tab="players" disabled><span aria-hidden="true">👥</span><span>Players</span></button>
+      <button class="app-tab" id="tab-results" type="button" role="tab" aria-selected="false" aria-controls="panel-results" tabindex="-1" data-app-tab="results" disabled><span aria-hidden="true">📊</span><span>Results</span></button>
+      <button class="app-tab" id="tab-activity" type="button" role="tab" aria-selected="false" aria-controls="panel-activity" tabindex="-1" data-app-tab="activity" disabled><span aria-hidden="true">📝</span><span>Activity</span></button>
+      <button class="app-tab" id="tab-session" type="button" role="tab" aria-selected="false" aria-controls="panel-session" tabindex="-1" data-app-tab="session" disabled><span aria-hidden="true">⚙</span><span>Session</span></button>
+    </div>
+  </nav>
+
+  <main class="app-tab-panels">
+    <section class="app-tab-panel" id="panel-game" role="tabpanel" aria-labelledby="tab-game" data-tab-panel="game">
+      <div class="card game-status-card" aria-label="Live game status">
+        <div class="card-title"><span class="card-title-left">🎯 Live Rotation</span></div>
+        <div class="stats-row">
+          <div class="stat-cell"><div class="stat-num" id="sTotal">0</div><div class="stat-lbl">Players</div></div>
+          <div class="stat-cell"><div class="stat-num" id="sOnCourt">0</div><div class="stat-lbl">On Court</div></div>
+          <div class="stat-cell"><div class="stat-num" id="sUpNext">0</div><div class="stat-lbl">Up Next</div></div>
+          <div class="stat-cell"><div class="stat-num" id="sAvail">0</div><div class="stat-lbl">Available</div></div>
+          <div class="stat-cell"><div class="stat-num" id="sActive">0</div><div class="stat-lbl">Active Courts</div></div>
+        </div>
+      </div>
+
+      <div class="action-row" id="actionControls">
+        <button class="btn btn-accent btn-block" style="flex:2" onclick="fillAvailableCourts()">⏭ Prepare Courts &amp; Up Next</button>
+      </div>
+      <div class="preparation-feedback" id="preparationFeedback" role="status" aria-live="polite" hidden></div>
+      <div id="availableSection"></div>
+      <div id="courtsSection"></div>
+    </section>
+
+    <section class="app-tab-panel" id="panel-players" role="tabpanel" aria-labelledby="tab-players" data-tab-panel="players" hidden>
+
+  <div id="playerToolsSection"></div>
 
   <!-- Player Management -->
   <div class="card" id="playerCard">
@@ -696,12 +816,52 @@
     </div>
     <div class="search-control" id="playerSearchWrap" hidden>
       <input class="search-input" id="playerSearch" type="search" placeholder="Search players…" autocomplete="off" aria-label="Search players" data-local-control>
+      <button class="search-clear" id="playerSearchClear" type="button" aria-label="Clear player search" data-local-control hidden disabled>✕</button>
       <span class="search-result-count" id="playerSearchCount"></span>
     </div>
     <div class="player-list" id="playerList"></div>
-    <div class="divider"></div>
-    <button class="btn btn-ghost btn-sm host-only" data-host-only style="width:100%" onclick="clearAllPlayers()">🗑 Clear All Players</button>
   </div>
+    </section>
+
+    <section class="app-tab-panel" id="panel-results" role="tabpanel" aria-labelledby="tab-results" data-tab-panel="results" hidden>
+
+      <!-- Leaderboard -->
+      <div class="card" id="statsCard" style="display:none">
+        <div class="lb-header-row">
+          <div class="card-title" style="margin-bottom:0"><span class="card-title-left">📊 Player Standings</span></div>
+          <div class="lb-header-actions"><button class="btn btn-primary btn-sm" onclick="openSessionSummary()">📄 Summary &amp; Export</button></div>
+        </div>
+        <div class="search-control" id="standingsSearchWrap" hidden>
+          <input class="search-input" id="standingsSearch" type="search" placeholder="Search standings…" autocomplete="off" aria-label="Search player standings" data-local-control>
+          <button class="search-clear" id="standingsSearchClear" type="button" aria-label="Clear standings search" data-local-control hidden disabled>✕</button>
+          <span class="search-result-count" id="standingsSearchCount"></span>
+        </div>
+        <div class="table-scroll" tabindex="0" aria-label="Player standings table">
+          <table class="lb-table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Player</th>
+                <th scope="col" class="r">G</th>
+                <th scope="col" class="r">W</th>
+                <th scope="col" class="r">Win%</th>
+                <th scope="col" class="lb-bar-cell"><span class="sr-only">Win percentage bar</span></th>
+              </tr>
+            </thead>
+            <tbody id="statsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="historySection"></div>
+    </section>
+
+    <section class="app-tab-panel" id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" data-tab-panel="activity" hidden>
+      <div id="activitySection"></div>
+    </section>
+
+    <section class="app-tab-panel" id="panel-session" role="tabpanel" aria-labelledby="tab-session" data-tab-panel="session" hidden>
+      <div id="sessionActionsSection"></div>
 
   <!-- Court Settings -->
   <div class="card" id="courtSettingsCard">
@@ -725,63 +885,15 @@
       <div class="readonly-setting" id="matchmakingReadOnly" hidden></div>
       <div class="matchmaking-help" id="matchmakingHelp">Prioritizes fair game counts, then new partners and opponents before waiting-time tie-breakers.</div>
     </div>
-    <div class="stats-row">
-      <div class="stat-cell"><div class="stat-num" id="sTotal">0</div><div class="stat-lbl">Players</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sOnCourt">0</div><div class="stat-lbl">On Court</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sUpNext">0</div><div class="stat-lbl">Up Next</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sAvail">0</div><div class="stat-lbl">Available</div></div>
-      <div class="stat-cell"><div class="stat-num" id="sActive">0</div><div class="stat-lbl">Active Courts</div></div>
-    </div>
   </div>
-
-  <!-- Action Buttons -->
-  <div class="action-row" id="actionControls">
-    <button class="btn btn-accent btn-block" style="flex:2" onclick="fillAvailableCourts()">⏭ Prepare Courts &amp; Up Next</button>
-    <button class="btn btn-reset btn-block host-only" data-host-only style="flex:1" onclick="resetAllCourts()">↺ Reset All</button>
-  </div>
-
-  <!-- Available Players -->
-  <div id="availableSection"></div>
-
-  <!-- Courts -->
-  <div id="courtsSection"></div>
-
-  <!-- Leaderboard -->
-  <div class="card" id="statsCard" style="display:none">
-    <div class="lb-header-row">
-      <div class="card-title" style="margin-bottom:0"><span class="card-title-left">📊 Player Standings</span></div>
-      <div class="lb-header-actions"><button class="btn btn-primary btn-sm" onclick="openSessionSummary()">📄 Summary & Export</button>
-        <button class="btn btn-ghost btn-sm host-only" data-host-only onclick="resetStats()">Reset Stats</button></div>
-    </div>
-    <div class="search-control" id="standingsSearchWrap" hidden>
-      <input class="search-input" id="standingsSearch" type="search" placeholder="Search standings…" autocomplete="off" aria-label="Search player standings">
-      <span class="search-result-count" id="standingsSearchCount"></span>
-    </div>
-    <table class="lb-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Player</th>
-          <th class="r">G</th>
-          <th class="r">W</th>
-          <th class="r">Win%</th>
-          <th class="lb-bar-cell"></th>
-        </tr>
-      </thead>
-      <tbody id="statsBody"></tbody>
-    </table>
-  </div>
-
-  <!-- History -->
-  <div id="historySection"></div>
-
-  <!-- Shared activity -->
-  <div id="activitySection"></div>
+      <div id="sessionDetailsSection"></div>
+    </section>
+  </main>
 
   <footer class="app-footer" aria-label="Application version and updates">
     <span class="app-version-copy">Pickleball Rotation <strong id="appVersion">v—</strong></span>
     <span class="app-update-status" id="appUpdateStatus" aria-live="polite">Checking for updates…</span>
-    <button class="btn btn-ghost btn-sm" id="updateAppBtn" type="button">↻ Update App</button>
+    <button class="btn btn-ghost btn-sm" id="updateAppBtn" type="button" disabled>↻ Update App</button>
   </footer>
 
 </div>
@@ -793,11 +905,11 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<div class="modal-overlay" id="appModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+<div class="modal-overlay" id="appModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalCopy">
   <div class="modal-card">
     <div class="modal-header">
       <div class="modal-title" id="modalTitle"></div>
-      <button class="btn btn-ghost btn-sm" id="modalCloseBtn" type="button">✕</button>
+      <button class="btn btn-ghost btn-sm" id="modalCloseBtn" type="button" aria-label="Close dialog" disabled>✕</button>
     </div>
     <div class="modal-copy" id="modalCopy"></div>
     <div id="modalBody"></div>
@@ -805,696 +917,10 @@
   </div>
 </div>
 
-<script type="text/plain" id="legacyApp">
-/* =====================================================
-   STATE
-===================================================== */
-var S = {
-  players:      [],
-  courts:       2,
-  playCounts:   {},
-  winCounts:    {},
-  courtStates:  [],
-  history:      [],
-  notAvailable: {}
-};
-
-var historyOpen = false;
-var swapState = null; // { courtIdx, team, pi } — pending swap selection
-
-/* =====================================================
-   INIT
-===================================================== */
-function init() {
-  loadState();
-  renderPlayerList();
-  syncCourtButtons();
-  renderAll();
-  document.getElementById('playerInput').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); addPlayer(); }
-  });
-  updateOnlineStatus();
-}
-
-/* =====================================================
-   COURT STATES
-===================================================== */
-function initCourtStates(count) {
-  while (S.courtStates.length < count) {
-    S.courtStates.push({ courtNum: S.courtStates.length + 1, status: 'empty', gameNum: 0, teamA: [], teamB: [], winner: null });
-  }
-  S.courtStates = S.courtStates.slice(0, count);
-  S.courtStates.forEach(function(cs, i) { cs.courtNum = i + 1; });
-}
-
-function getLockedPlayers() {
-  var locked = [];
-  S.courtStates.forEach(function(cs) {
-    if (cs.status === 'playing') locked = locked.concat(cs.teamA, cs.teamB);
-  });
-  return locked;
-}
-
-function getAvailablePlayers() {
-  var locked = getLockedPlayers();
-  return S.players.filter(function(p) { return locked.indexOf(p) === -1 && !S.notAvailable[p]; });
-}
-
-/* =====================================================
-   PLAYER MANAGEMENT
-===================================================== */
-function addPlayer() {
-  var inp = document.getElementById('playerInput');
-  var raw = inp.value.trim();
-  if (!raw) { showToast('Please enter a player name.'); return; }
-  if (S.players.some(function(p){ return p.toLowerCase() === raw.toLowerCase(); })) {
-    showToast('"' + raw + '" is already in the list.');
-    return;
-  }
-  S.players.push(raw);
-  if (S.playCounts[raw] === undefined) S.playCounts[raw] = 0;
-  if (S.winCounts[raw]  === undefined) S.winCounts[raw]  = 0;
-  inp.value = ''; inp.focus();
-  save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderLeaderboard(); clearMsg();
-}
-
-function removePlayer(idx) {
-  var name = S.players[idx];
-  var locked = getLockedPlayers();
-  if (locked.indexOf(name) !== -1) {
-    showToast('"' + name + '" is in an active game. Record winner first.');
-    return;
-  }
-  if (!confirm('Remove "' + name + '" from the list?')) return;
-  S.players.splice(idx, 1);
-  delete S.playCounts[name];
-  delete S.winCounts[name];
-  delete S.notAvailable[name];
-  save(); renderPlayerList(); updateStats(); renderAvailableSection(); renderLeaderboard();
-}
-
-function clearAllPlayers() {
-  if (S.players.length === 0) { showToast('No players to clear.'); return; }
-  if (!confirm('Clear all players and reset everything?')) return;
-  S.players = []; S.playCounts = {}; S.winCounts = {}; S.history = []; S.notAvailable = {};
-  initCourtStates(S.courts);
-  save(); renderPlayerList(); renderAll(); clearMsg();
-}
-
-function renderPlayerList() {
-  var el = document.getElementById('playerList');
-  if (S.players.length === 0) {
-    el.innerHTML = '<div class="empty-hint">No players added yet. Enter names above.</div>';
-    return;
-  }
-  var locked = getLockedPlayers();
-  el.innerHTML = S.players.map(function(name, i) {
-    var isLocked = locked.indexOf(name) !== -1;
-    var isNA = !!S.notAvailable[name];
-    var g = S.playCounts[name] || 0;
-    var w = S.winCounts[name]  || 0;
-    var badges = '';
-    if (isLocked) {
-      badges = '<span class="locked-badge">🔒 On Court</span>';
-    } else if (isNA) {
-      badges = '<span class="na-tag">⛔ Not Available</span>';
-    } else {
-      if (w > 0) badges += '<span class="wins-badge">🏆 ' + w + 'W</span>';
-      if (g > 0) badges += '<span class="games-badge">' + g + 'G</span>';
-    }
-    var naBtn = isLocked ? '' : '<button class="btn-na' + (isNA ? ' is-na' : '') + '" onclick="toggleNotAvailable(' + i + ')" title="' + (isNA ? 'Mark available' : 'Mark not available') + '">' + (isNA ? '✅ Back In' : '⛔ NA') + '</button>';
-    var removeBtn = isLocked
-      ? '<button class="btn btn-ghost btn-sm" disabled style="opacity:.3">✕</button>'
-      : '<button class="btn btn-danger btn-sm" onclick="removePlayer(' + i + ')">✕</button>';
-    var cls = 'player-item' + (isLocked ? ' locked' : '') + (isNA ? ' not-avail' : '');
-    return '<div class="' + cls + '">'
-      + '<span class="player-name">' + (i+1) + '. ' + esc(name) + '</span>'
-      + '<span style="display:flex;gap:5px;flex-shrink:0;align-items:center">' + badges + naBtn + '</span>'
-      + removeBtn + '</div>';
-  }).join('');
-}
-
-/* =====================================================
-   COURT SETTINGS
-===================================================== */
-function setCourts(n) {
-  if (n === S.courts) return;
-  if (n < S.courts) {
-    var removing = S.courtStates.slice(n);
-    var hasActive = removing.some(function(cs){ return cs.status === 'playing'; });
-    if (hasActive && !confirm('Reducing courts will end active games on removed courts. Continue?')) return;
-  }
-  S.courts = n;
-  initCourtStates(n);
-  save(); syncCourtButtons(); renderAll();
-}
-
-function syncCourtButtons() {
-  document.querySelectorAll('.court-btn').forEach(function(btn) {
-    btn.classList.toggle('active', parseInt(btn.dataset.n) === S.courts);
-  });
-}
-
-/* =====================================================
-   STATS BAR
-===================================================== */
-function updateStats() {
-  var total  = S.players.length;
-  var locked = getLockedPlayers().length;
-  var avail  = total - locked;
-  var active = S.courtStates.filter(function(cs){ return cs.status === 'playing'; }).length;
-  document.getElementById('sTotal').textContent   = total;
-  document.getElementById('sOnCourt').textContent = locked;
-  document.getElementById('sAvail').textContent   = Math.max(0, avail);
-  document.getElementById('sActive').textContent  = active;
-}
-
-/* =====================================================
-   ROTATION — PER COURT
-===================================================== */
-function generateForCourt(idx) {
-  var cs = S.courtStates[idx];
-  if (!cs) return;
-  if (cs.status === 'playing') {
-    showToast('Record the winner for Court ' + cs.courtNum + ' before generating a new game.');
-    return;
-  }
-  var avail = getAvailablePlayers();
-  if (avail.length < 4) {
-    showMsg('Not enough available players for Court ' + cs.courtNum + '. Need 4, have ' + avail.length + '.', 'warning');
-    return;
-  }
-  assignGameToCourt(cs, avail);
-  save(); renderAll();
-  showToast('Court ' + cs.courtNum + ' — Game ' + cs.gameNum + ' started!');
-}
-
-function fillAvailableCourts() {
-  clearMsg();
-  var filled = 0;
-  S.courtStates.forEach(function(cs) {
-    if (cs.status !== 'playing') {
-      var avail = getAvailablePlayers();
-      if (avail.length >= 4) { assignGameToCourt(cs, avail); filled++; }
-    }
-  });
-  save(); renderAll();
-  if (filled === 0) {
-    showMsg('All courts are in play or not enough available players (need 4 per court).', 'warning');
-  } else {
-    showToast('Started ' + filled + ' new game' + (filled !== 1 ? 's' : '') + '!');
-  }
-}
-
-function assignGameToCourt(cs, avail) {
-  var sorted = sortByCount(avail, S.playCounts);
-  var picked = sorted.slice(0, 4);
-  shuffle(picked);
-  cs.teamA  = [picked[0], picked[1]];
-  cs.teamB  = [picked[2], picked[3]];
-  cs.status = 'playing';
-  cs.gameNum = (cs.gameNum || 0) + 1;
-  cs.winner = null;
-  picked.forEach(function(p){ S.playCounts[p] = (S.playCounts[p] || 0) + 1; });
-}
-
-function recordWinner(idx, winner) {
-  var cs = S.courtStates[idx];
-  if (!cs || cs.status !== 'playing') return;
-  cs.winner = winner;
-  cs.status = 'done';
-  var winNames = winner === 'A' ? cs.teamA : cs.teamB;
-  winNames.forEach(function(p){ S.winCounts[p] = (S.winCounts[p] || 0) + 1; });
-  S.history.unshift({
-    courtNum:    cs.courtNum,
-    gameNum:     cs.gameNum,
-    teamA:       cs.teamA.slice(),
-    teamB:       cs.teamB.slice(),
-    winner:      winner,
-    winnerNames: winNames.slice(),
-    ts:          Date.now()
-  });
-  if (S.history.length > 100) S.history = S.history.slice(0, 100);
-  swapState = null;
-  save(); renderAll();
-  showToast('Court ' + cs.courtNum + ' — ' + winNames.join(' & ') + ' won! 🏆');
-}
-
-function resetAllCourts() {
-  var hasActive = S.courtStates.some(function(cs){ return cs.status === 'playing'; });
-  if (!confirm((hasActive ? 'Reset all courts? Active games will be lost.\n' : '') + 'Court assignments and game history will be cleared. Player stats (wins/games) are kept.')) return;
-  S.history = [];
-  swapState = null;
-  initCourtStates(S.courts);
-  save(); renderAll(); clearMsg(); showToast('All courts reset. Player stats preserved.');
-}
-
-function resetStats() {
-  if (!confirm('Reset all player stats? This will clear wins, games played, and game history for everyone.')) return;
-  S.players.forEach(function(p){ S.playCounts[p] = 0; S.winCounts[p] = 0; });
-  S.history = [];
-  save(); renderAll(); clearMsg(); showToast('Player stats reset.');
-}
-
-/* =====================================================
-   SORT / SHUFFLE
-===================================================== */
-function sortByCount(players, counts) {
-  var groups = {};
-  players.forEach(function(n) {
-    var c = counts[n] || 0;
-    if (!groups[c]) groups[c] = [];
-    groups[c].push(n);
-  });
-  var keys = Object.keys(groups).map(Number).sort(function(a,b){ return a-b; });
-  var result = [];
-  keys.forEach(function(k){ var g = groups[k].slice(); shuffle(g); result = result.concat(g); });
-  return result;
-}
-function shuffle(arr) {
-  for (var i = arr.length-1; i > 0; i--) {
-    var j = Math.floor(Math.random()*(i+1));
-    var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
-  }
-}
-
-/* =====================================================
-   RENDER ALL
-===================================================== */
-function renderAll() {
-  updateStats();
-  renderPlayerList();
-  renderAvailableSection();
-  renderCourtsSection();
-  renderHistorySection();
-  renderLeaderboard();
-}
-
-/* =====================================================
-   RENDER: AVAILABLE PLAYERS
-===================================================== */
-function renderAvailableSection() {
-  var el = document.getElementById('availableSection');
-  if (S.players.length === 0) { el.innerHTML = ''; return; }
-  var avail  = getAvailablePlayers();
-  var locked = getLockedPlayers();
-  var naList = S.players.filter(function(p) { return !!S.notAvailable[p]; });
-  var html = '<div class="avail-card"><div class="avail-header">'
-    + '✅ Available (' + avail.length + ')';
-  if (locked.length > 0) html += '<span class="on-court-tag">🔒 On Court: ' + locked.length + '</span>';
-  if (naList.length > 0) html += '<span class="na-tag">⛔ Not Available: ' + naList.length + '</span>';
-  html += '</div>';
-  if (avail.length === 0 && naList.length === 0) {
-    html += '<div class="no-avail">All players are currently on court.</div>';
-  } else if (avail.length === 0) {
-    html += '<div class="no-avail">No players available for rotation.</div>';
-  } else {
-    html += '<div class="avail-chips">'
-      + avail.map(function(n){ return '<div class="avail-chip">' + esc(n) + '</div>'; }).join('')
-      + '</div>';
-  }
-  if (naList.length > 0) {
-    html += '<div class="na-chips">'
-      + '<div class="na-section-lbl" style="width:100%;margin-bottom:6px">⛔ Sitting Out</div>'
-      + naList.map(function(n){ return '<div class="na-chip">' + esc(n) + '</div>'; }).join('')
-      + '</div>';
-  }
-  html += '</div>';
-  el.innerHTML = html;
-}
-
-/* =====================================================
-   RENDER: COURTS SECTION
-===================================================== */
-function renderCourtsSection() {
-  var el = document.getElementById('courtsSection');
-  if (S.players.length === 0) {
-    el.innerHTML = '<div class="no-games"><div class="no-games-icon">🏓</div>'
-      + '<p>Add players, then tap<br><strong>⚡ Fill Available Courts</strong> to start!</p></div>';
-    return;
-  }
-  el.innerHTML = S.courtStates.map(function(cs, idx){ return renderCourtCard(cs, idx); }).join('');
-}
-
-function renderCourtCard(cs, idx) {
-  var n  = Math.min(cs.courtNum, 6);
-  var st = cs.status;
-
-  var header = '<div class="court-card-header">'
-    + '<div class="court-name"><span class="court-dot dot-' + n + '"></span>Court ' + cs.courtNum + '</div>'
-    + statusBadgeHtml(st)
-    + '</div>';
-
-  var body = '';
-  if (st === 'empty') {
-    body = '<div class="court-empty-body">No game assigned yet.</div>'
-      + '<button class="btn btn-primary btn-block" onclick="generateForCourt(' + idx + ')">▶ Generate Next Game</button>';
-  } else if (st === 'playing') {
-    body = teamsHtml(cs, false)
-      + '<div class="winner-section">'
-      + '<div class="winner-lbl">⚡ Who won?</div>'
-      + '<div class="winner-row">'
-      + '<button class="btn-team-a" onclick="recordWinner(' + idx + ',\'A\')">🟢 Team A Won</button>'
-      + '<button class="btn-team-b" onclick="recordWinner(' + idx + ',\'B\')">🔵 Team B Won</button>'
-      + '</div></div>';
-  } else if (st === 'done') {
-    body = teamsHtml(cs, true)
-      + '<button class="btn btn-accent btn-block" style="margin-top:12px" onclick="generateForCourt(' + idx + ')">▶ Generate Next Game</button>';
-  }
-
-  var extra = st === 'playing' ? ' is-playing' : (st === 'done' ? ' is-done' : '');
-  return '<div class="court-card court-card-' + n + extra + '">' + header + body + '</div>';
-}
-
-function statusBadgeHtml(st) {
-  if (st === 'empty')   return '<span class="status-badge status-empty">Empty</span>';
-  if (st === 'playing') return '<span class="status-badge status-playing">● In Progress</span>';
-  if (st === 'done')    return '<span class="status-badge status-done">✓ Done</span>';
-  return '';
-}
-
-function teamsHtml(cs, showWinner) {
-  var idx = S.courtStates.indexOf(cs);
-  var allowActions = !showWinner;
-  var aWon = showWinner && cs.winner === 'A';
-  var bWon = showWinner && cs.winner === 'B';
-  var pending = swapState && swapState.courtIdx === idx;
-
-  function playerRow(name, team, pi) {
-    var btns = '';
-    if (allowActions) {
-      if (pending) {
-        if (swapState.team === team && swapState.pi === pi) {
-          btns = '<button class="swap-btn is-active" onclick="startSwap(' + idx + ',\'' + team + '\',' + pi + ')">✕ Cancel</button>';
-        } else if (swapState.team !== team) {
-          btns = '<button class="swap-target-btn" onclick="executeSwap(' + idx + ',\'' + team + '\',' + pi + ')">⇄ Swap here</button>';
-        }
-      } else {
-        btns = '<button class="skip-btn" onclick="skipPlayer(' + idx + ',\'' + team + '\',' + pi + ')">↩ Skip</button>'
-             + '<button class="swap-btn" onclick="startSwap(' + idx + ',\'' + team + '\',' + pi + ')">⇄</button>';
-      }
-    }
-    var isSelecting = pending && swapState.team === team && swapState.pi === pi;
-    return '<div class="team-player' + (isSelecting ? ' swap-selecting' : '') + '">'
-      + '<div class="tp-namerow"><span class="tp-icon">' + (team === 'A' ? '🟢' : '🔵') + '</span>'
-      + '<span class="tp-name">' + esc(name) + '</span></div>'
-      + (btns ? '<div class="tp-actions">' + btns + '</div>' : '')
-      + '</div>';
-  }
-
-  return '<div class="teams-row">'
-    + '<div class="team-box' + (aWon ? ' team-winner' : '') + '">'
-    + '<div class="team-lbl' + (aWon ? ' won' : '') + '">Team A' + (aWon ? ' 🏆' : '') + '</div>'
-    + playerRow(cs.teamA[0], 'A', 0) + playerRow(cs.teamA[1], 'A', 1)
-    + '</div>'
-    + '<div class="vs-col">VS</div>'
-    + '<div class="team-box' + (bWon ? ' team-winner' : '') + '">'
-    + '<div class="team-lbl' + (bWon ? ' won' : '') + '">Team B' + (bWon ? ' 🏆' : '') + '</div>'
-    + playerRow(cs.teamB[0], 'B', 0) + playerRow(cs.teamB[1], 'B', 1)
-    + '</div></div>';
-}
-
-function startSwap(courtIdx, team, pi) {
-  if (swapState && swapState.courtIdx === courtIdx && swapState.team === team && swapState.pi === pi) {
-    swapState = null;
-  } else {
-    swapState = { courtIdx: courtIdx, team: team, pi: pi };
-  }
-  renderCourtsSection();
-}
-
-function executeSwap(courtIdx, toTeam, toPi) {
-  if (!swapState || swapState.courtIdx !== courtIdx) return;
-  var cs = S.courtStates[courtIdx];
-  if (!cs || cs.status !== 'playing') return;
-  var fromArr = swapState.team === 'A' ? cs.teamA : cs.teamB;
-  var toArr   = toTeam === 'A'         ? cs.teamA : cs.teamB;
-  var fromName = fromArr[swapState.pi];
-  var toName   = toArr[toPi];
-  fromArr[swapState.pi] = toName;
-  toArr[toPi]           = fromName;
-  swapState = null;
-  save(); renderAll();
-  showToast(esc(fromName) + ' ⇄ ' + esc(toName) + ' swapped teams!');
-}
-
-/* =====================================================
-   RENDER: HISTORY
-===================================================== */
-function toggleHistory() {
-  historyOpen = !historyOpen;
-  renderHistorySection();
-}
-
-function renderHistorySection() {
-  var el = document.getElementById('historySection');
-  if (S.history.length === 0) { el.innerHTML = ''; return; }
-  var html = '<div class="card">'
-    + '<div class="card-title history-toggle-row" onclick="toggleHistory()">'
-    + '<span class="card-title-left">🏆 Game History (' + S.history.length + ')</span>'
-    + '<span>' + (historyOpen ? '▲ Hide' : '▼ Show') + '</span>'
-    + '</div>';
-  if (historyOpen) {
-    S.history.slice(0, 30).forEach(function(h) {
-      var d = new Date(h.ts);
-      var time = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-      var date = d.toLocaleDateString([], {month:'short', day:'numeric'});
-      html += '<div class="history-item">'
-        + '<div class="history-meta">Court ' + h.courtNum + ' · Game ' + h.gameNum + ' · ' + date + ' ' + time + '</div>'
-        + '<div class="history-result">'
-        + '<span class="' + (h.winner === 'A' ? 'h-winner' : 'h-loser') + '">🟢 ' + esc(h.teamA.join(' & ')) + '</span>'
-        + '<span class="h-vs">vs</span>'
-        + '<span class="' + (h.winner === 'B' ? 'h-winner' : 'h-loser') + '">🔵 ' + esc(h.teamB.join(' & ')) + '</span>'
-        + '</div></div>';
-    });
-  }
-  html += '</div>';
-  el.innerHTML = html;
-}
-
-/* =====================================================
-   RENDER: LEADERBOARD
-===================================================== */
-function renderLeaderboard() {
-  var card = document.getElementById('statsCard');
-  var body = document.getElementById('statsBody');
-  var hasActivity = S.players.some(function(p){ return (S.playCounts[p] || 0) > 0; });
-  if (S.players.length === 0) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-
-  if (!hasActivity) {
-    body.innerHTML = '<tr><td colspan="6"><div class="lb-no-games">No games played yet. Generate games to start tracking stats.</div></td></tr>';
-    return;
-  }
-
-  // Sort: wins desc, then games desc, then name asc
-  var sorted = S.players.slice().sort(function(a, b) {
-    var wDiff = (S.winCounts[b] || 0) - (S.winCounts[a] || 0);
-    if (wDiff !== 0) return wDiff;
-    var gDiff = (S.playCounts[b] || 0) - (S.playCounts[a] || 0);
-    if (gDiff !== 0) return gDiff;
-    return a.localeCompare(b);
-  });
-
-  body.innerHTML = sorted.map(function(name, i) {
-    var rank = i + 1;
-    var g = S.playCounts[name] || 0;
-    var w = S.winCounts[name]  || 0;
-    var pct = g > 0 ? Math.round((w / g) * 100) : 0;
-    var pctLabel = g > 0 ? pct + '%' : '—';
-    var rankCls = rank === 1 ? 'gold' : (rank === 2 ? 'silver' : (rank === 3 ? 'bronze' : ''));
-    var rankIcon = rank === 1 ? '🥇' : (rank === 2 ? '🥈' : (rank === 3 ? '🥉' : rank));
-    return '<tr>'
-      + '<td class="lb-rank ' + rankCls + '">' + rankIcon + '</td>'
-      + '<td class="lb-name">' + esc(name) + '</td>'
-      + '<td class="lb-num">'  + g + '</td>'
-      + '<td class="lb-win">'  + w + '</td>'
-      + '<td class="lb-pct">'  + pctLabel + '</td>'
-      + '<td class="lb-bar-cell"><div class="lb-bar-wrap"><div class="lb-bar-win" style="width:' + pct + '%"></div></div></td>'
-      + '</tr>';
-  }).join('');
-}
-
-/* =====================================================
-   NOT AVAILABLE TOGGLE
-===================================================== */
-function toggleNotAvailable(idx) {
-  var name = S.players[idx];
-  if (!name) return;
-  var locked = getLockedPlayers();
-  if (locked.indexOf(name) !== -1) { showToast('"' + name + '" is on an active court.'); return; }
-  if (S.notAvailable[name]) {
-    delete S.notAvailable[name];
-  } else {
-    S.notAvailable[name] = true;
-  }
-  save(); renderPlayerList(); updateStats(); renderAvailableSection();
-}
-
-/* =====================================================
-   SKIP PLAYER
-===================================================== */
-function skipPlayer(courtIdx, team, pi) {
-  var cs = S.courtStates[courtIdx];
-  if (!cs || cs.status !== 'playing') return;
-  var teamArr = team === 'A' ? cs.teamA : cs.teamB;
-  var skipped = teamArr[pi];
-  var avail = getAvailablePlayers();
-  if (avail.length === 0) {
-    showToast('No available players to substitute for ' + skipped + '.');
-    return;
-  }
-  var sorted = sortByCount(avail, S.playCounts);
-  var sub = sorted[0];
-  teamArr[pi] = sub;
-  S.playCounts[skipped] = Math.max(0, (S.playCounts[skipped] || 1) - 1);
-  S.playCounts[sub] = (S.playCounts[sub] || 0) + 1;
-  save(); renderAll();
-  showToast(esc(skipped) + ' skipped → ' + esc(sub) + ' steps in!');
-}
-
-/* =====================================================
-   MESSAGES & TOAST
-===================================================== */
-function showMsg(text, type) { var el = document.getElementById('msgBox'); el.className = 'msg-box ' + (type||'info'); el.textContent = text; }
-function clearMsg()           { var el = document.getElementById('msgBox'); el.className = 'msg-box'; el.textContent = ''; }
-var toastTimer;
-function showToast(msg) {
-  var t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3200);
-}
-
-/* =====================================================
-   LOCAL STORAGE
-===================================================== */
-var KEY = 'pickleballRotation_v2';
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
-function loadState() {
-  try {
-    var raw = localStorage.getItem(KEY);
-    if (!raw) { initCourtStates(S.courts); return; }
-    var p = JSON.parse(raw);
-    if (Array.isArray(p.players))                             S.players     = p.players;
-    if (typeof p.courts === 'number')                         S.courts      = p.courts;
-    if (p.playCounts && typeof p.playCounts === 'object')     S.playCounts  = p.playCounts;
-    if (p.winCounts  && typeof p.winCounts  === 'object')     S.winCounts   = p.winCounts;
-    if (Array.isArray(p.courtStates))                         S.courtStates = p.courtStates;
-    if (Array.isArray(p.history))                             S.history     = p.history;
-    if (p.notAvailable && typeof p.notAvailable === 'object') S.notAvailable = p.notAvailable;
-    S.players.forEach(function(n){
-      if (S.playCounts[n] === undefined) S.playCounts[n] = 0;
-      if (S.winCounts[n]  === undefined) S.winCounts[n]  = 0;
-    });
-    initCourtStates(S.courts);
-  } catch(e) { initCourtStates(S.courts); }
-}
-
-/* =====================================================
-   HELPER
-===================================================== */
-function esc(str) {
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-
-/* =====================================================
-   PWA INSTALL PROMPT
-===================================================== */
-var deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', function(e) {
-  e.preventDefault(); deferredPrompt = e;
-  document.getElementById('installBanner').classList.add('visible');
-});
-document.getElementById('installBtn').addEventListener('click', function() {
-  if (!deferredPrompt) return;
-  deferredPrompt.prompt();
-  deferredPrompt.userChoice.then(function(){ deferredPrompt = null; document.getElementById('installBanner').classList.remove('visible'); });
-});
-window.addEventListener('appinstalled', function() {
-  document.getElementById('installBanner').classList.remove('visible');
-  showToast('App installed! Find it on your home screen.');
-});
-
-/* =====================================================
-   ONLINE / OFFLINE
-===================================================== */
-function updateOnlineStatus() {
-  document.getElementById('offlineBar').classList.toggle('visible', !navigator.onLine);
-}
-window.addEventListener('online',  updateOnlineStatus);
-window.addEventListener('offline', updateOnlineStatus);
-
-/* =====================================================
-   SERVICE WORKER
-===================================================== */
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-    navigator.serviceWorker.register('./sw.js').catch(function(e){ console.warn('SW failed:', e); });
-  });
-}
-
-/* =====================================================
-   FIREBASE AUTH
-===================================================== */
-var firebaseConfig = {
-  apiKey:            "AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc",
-  authDomain:        "pickleball-rotation.firebaseapp.com",
-  projectId:         "pickleball-rotation",
-  storageBucket:     "pickleball-rotation.firebasestorage.app",
-  messagingSenderId: "103026729080",
-  appId:             "1:103026729080:web:e4087895e44f190efa0d8d"
-};
-firebase.initializeApp(firebaseConfig);
-var fbAuth = firebase.auth();
-var fbDb   = firebase.firestore();
-
-document.getElementById('signInBtn').addEventListener('click', function() {
-  var provider = new firebase.auth.GoogleAuthProvider();
-  fbAuth.signInWithPopup(provider).catch(function(e) {
-    var errEl = document.getElementById('authError');
-    errEl.textContent = 'Sign-in failed: ' + e.message;
-    errEl.classList.add('show');
-  });
-});
-
-document.getElementById('signOutBtn').addEventListener('click', function() {
-  fbAuth.signOut();
-});
-
-var appInitialised = false;
-fbAuth.onAuthStateChanged(function(user) {
-  if (!user) {
-    document.getElementById('authOverlay').classList.remove('hidden');
-    document.getElementById('signOutWrap').style.display = 'none';
-    return;
-  }
-  fbDb.collection('allowedEmails').where('email', '==', user.email).get()
-    .then(function(snap) {
-      if (snap.empty) {
-        var errEl = document.getElementById('authError');
-        errEl.textContent = 'Your account (' + user.email + ') is not authorised. Contact the app owner.';
-        errEl.classList.add('show');
-        document.getElementById('authOverlay').classList.remove('hidden');
-        fbAuth.signOut();
-        return;
-      }
-      document.getElementById('authOverlay').classList.add('hidden');
-      document.getElementById('signOutWrap').style.display = 'block';
-      if (!appInitialised) { appInitialised = true; init(); }
-    })
-    .catch(function() {
-      var errEl = document.getElementById('authError');
-      errEl.textContent = 'Could not verify access. Check your connection.';
-      errEl.classList.add('show');
-      fbAuth.signOut();
-    });
-});
-</script>
 <script src="./vendor/qrcode.js"></script>
 <script src="./rotation-engine.js"></script>
 <script src="./room-data.js"></script>
+<script src="./live-sync.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

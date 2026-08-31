@@ -992,3 +992,78 @@ test('session information is bounded for safe shared-room storage', () => {
   assert.equal(normalized.sessionAnnouncement.length, 240);
   assert.equal(normalized.sessionRules.length, 1500);
 });
+
+test('a fair lineup can be prepared again after remove or restored undo state', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 1);
+  const first = Engine.prepareNextGame(state, 0, () => 0.5, 1000);
+  assert.equal(first.changed, true);
+  const firstPlayers = first.nextGame.teamA.concat(first.nextGame.teamB);
+  assert.equal(Engine.clearNextGame(state, 0).changed, true);
+  const second = Engine.prepareNextGame(state, 0, () => 0.5, 2000);
+  assert.equal(second.changed, true);
+  assert.equal(second.nextGame.teamA.concat(second.nextGame.teamB).length, 4);
+
+  const restored = Engine.clone(state);
+  Engine.clearNextGame(restored, 0);
+  const afterUndo = Engine.prepareNextGame(restored, 0, () => 0.5, 3000);
+  assert.equal(afterUndo.changed, true);
+  assert.equal(new Set(firstPlayers).size, 4);
+});
+
+test('recording a winner prepares a fair next lineup without starting credits or timer', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 1);
+  state.courtStates[0].timeLimitMinutes = 15;
+  Engine.assignGame(state, 0, () => 0.5, 1000);
+  const activeIds = state.courtStates[0].teamA.concat(state.courtStates[0].teamB);
+  const result = Engine.recordWinnerAndPrepareNext(state, 0, 'A', () => 0.5, 2000);
+  assert.equal(result.changed, true);
+  assert.equal(result.autoPreparedNext, true);
+  assert.equal(state.history.length, 1);
+  assert.equal(state.courtStates[0].status, 'empty');
+  assert.ok(state.courtStates[0].nextGame);
+  assert.equal(state.courtStates[0].startedAt, null);
+  assert.equal(state.courtStates[0].deadlineAt, null);
+  const preparedIds = state.courtStates[0].nextGame.teamA.concat(state.courtStates[0].nextGame.teamB);
+  preparedIds.forEach(id => assert.equal(Engine.playerById(state, id).games, activeIds.includes(id) ? 1 : 0));
+});
+
+test('recording a winner preserves an existing prepared lineup unchanged', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 1);
+  Engine.assignGame(state, 0, () => 0.5, 1000);
+  const prepared = Engine.prepareNextGame(state, 0, () => 0.5, 1100);
+  const expected = Engine.clone(prepared.nextGame);
+  const result = Engine.recordWinnerAndPrepareNext(state, 0, 'B', () => 0.1, 2000);
+  assert.equal(result.promotedPreparedGame, true);
+  assert.deepEqual(state.courtStates[0].nextGame, expected);
+  assert.equal(state.courtStates[0].status, 'empty');
+});
+
+test('strict-court shortages return a structured eligibility breakdown', () => {
+  const state = stateWithPlayers(['A', 'B', 'C', 'D', 'E', 'F'], 1);
+  state.courtStates[0].skillGroup = 'beginner';
+  state.players[2].skillRating = 2;
+  state.players[3].skillRating = 2;
+  state.players[4].notAvailable = true;
+  state.players[5].skillLevelConfirmed = false;
+  const result = Engine.prepareNextGame(state, 0, () => 0.5);
+  assert.equal(result.changed, false);
+  assert.equal(result.reasonCode, 'insufficient_eligible');
+  assert.equal(result.requiredCount, 4);
+  assert.equal(result.eligibleCount, 2);
+  assert.deepEqual(result.breakdown, {
+    total: 6,
+    available: 2,
+    onCourt: 0,
+    upNext: 0,
+    takingBreak: 1,
+    unconfirmed: 1,
+    skillMismatch: 2
+  });
+});
+
+test('four eligible players always receive a deterministic fair assignment', () => {
+  const state = stateWithPlayers(['1', '2', '3', '4'], 1);
+  const result = Engine.prepareNextGame(state, 0, () => 0.5);
+  assert.equal(result.changed, true);
+  assert.equal(new Set(result.nextGame.teamA.concat(result.nextGame.teamB)).size, 4);
+});
