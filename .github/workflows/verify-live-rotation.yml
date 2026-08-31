@@ -5,6 +5,7 @@ on:
     paths:
       - "index.html"
       - "room-data.js"
+      - "live-sync.js"
       - "app.js"
       - "rotation-engine.js"
       - "sw.js"
@@ -16,6 +17,9 @@ on:
       - "package.json"
       - "package-lock.json"
       - "tests/**"
+      - "DESIGN.md"
+      - "UX-CONTRACT.md"
+      - "premium-ui.json"
       - ".github/workflows/verify-live-rotation.yml"
   push:
     branches:

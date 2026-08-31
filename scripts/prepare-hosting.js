@@ -10,6 +10,7 @@ const publicFiles = [
   'app.js',
   'rotation-engine.js',
   'room-data.js',
+  'live-sync.js',
   'sw.js',
   'manifest.json',
   'version.json',

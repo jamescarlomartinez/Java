@@ -2,7 +2,8 @@
 
 var Engine = window.PickleballRotation;
 var RoomData = window.PickleballRoomData;
-var APP_VERSION = '3.11.1';
+var LiveSync = window.PickleballLiveSync;
+var APP_VERSION = '3.12.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -32,10 +33,12 @@ var pendingPlayerSkillRating = null;
 var pendingControllerSelection = null;
 var roomRef = null;
 var roomData = null;
+var initialRoomServerSnapshot = null;
 var currentUser = null;
 var controllerName = '';
 var isOrganizer = false;
 var roomUnsubscribe = null;
+var roomSync = null;
 var eventsUnsubscribe = null;
 var activityEvents = [];
 var activityOpen = false;
@@ -51,7 +54,12 @@ var courtDisplayActive = false;
 var displayPreferences = loadDisplayPreferences();
 var swapState = null;
 var sharedBusy = false;
-var syncStatus = roomId ? 'syncing' : 'connected';
+var syncStatus = roomId ? 'connecting' : 'live';
+var syncLastConfirmedAt = null;
+var activeTab = 'game';
+var modalReturnFocus = null;
+var modalOptions = null;
+var preparationFeedbackItems = [];
 var appInitialised = false;
 var toastTimer = null;
 var deferredPrompt = null;
@@ -61,7 +69,7 @@ var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v9';
+var ROLE_HELP_VERSION = 'v10';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -83,6 +91,8 @@ var ROLE_HELP = {
     title: 'Player Check-In · How to Use',
     copy: 'Use this access type to manage only your own player entry.',
     steps: [
+      'Use the five tabs by task: Game for live courts, Players for your roster identity, Results for standings and history, Activity for shared updates, and Session for help and display tools.',
+      'The game opens on Game after every refresh. On phones, the tabs stay at the bottom for one-handed access.',
       'Choose your roster name, or add yourself, then select Beginner or Non-Beginner.',
       'Use the Available, On Court, Up Next, and Taking a Break labels to understand your current status.',
       'In an Up Next panel, check your court, partner, opponents, and the court’s skill designation.',
@@ -94,6 +104,7 @@ var ROLE_HELP = {
       'Use player and standings search in larger groups, and open Display Settings for larger text, high contrast, sound, or vibration preferences.',
       'Read the organizer’s announcement and Session Rules when they are provided.',
       'If a court reaches its time limit, it stays active until a controller records the real-world winner.',
+      'Live means the latest room state was confirmed by Firestore. While Offline, Reconnecting, or Syncing, your last valid game remains visible and shared changes pause automatically.',
       'Follow standings, court timers, Game History, and Session Summary & Export for live and completed results.'
     ]
   },
@@ -101,6 +112,7 @@ var ROLE_HELP = {
     title: 'View Only · How to Use',
     copy: 'Use this access type to follow the session without changing it.',
     steps: [
+      'Use Game for courts, Players for the roster, Results for standings and history, Activity for controller actions, and Session for rules, help, and display settings.',
       'Active matches and Up Next lineups are shown separately on each court.',
       'Read court names, skill designations, teams, elapsed timers or countdowns, and status badges.',
       'Players shown Up Next are reserved and cannot be placed in another lineup.',
@@ -108,6 +120,7 @@ var ROLE_HELP = {
       'Use search for a large roster, open Live Activity only when you need it, and use Court Display for a fullscreen court board.',
       'Use Display Settings for larger text, high contrast, sound, or vibration preferences, and read Session Rules or announcements when provided.',
       'Follow Player Standings, Game History, Live Activity, and Session Summary & Export.',
+      'Live means the latest room revision was confirmed by the server. Reconnecting keeps the last valid court view on screen and recovers automatically without a page refresh.',
       'The page updates automatically. Game controls are intentionally unavailable in View Only mode.'
     ]
   },
@@ -115,13 +128,16 @@ var ROLE_HELP = {
     title: 'Controller · How to Use',
     copy: 'Use this access type to operate the shared rotation.',
     steps: [
+      'Use Game for court operations, Players for roster work, Results for standings and exports, Activity for the on-demand event feed, and Session for court settings, sharing, help, display tools, and organizer controls.',
+      'The app always opens on Game after a refresh. The current tab is kept only while this page remains open.',
       'Choose Controller Only, Existing Player, or New Player when joining. You keep full controller controls in every option.',
       'Use Prepare Courts & Up Next to fill idle courts first, then prepare one next lineup for each active court.',
       'Use Prepare Fair Next on one active court when its next lineup is empty.',
       'Use Build Next Manually to choose the exact four players and teams.',
       'Edit or remove a prepared lineup while the current match continues.',
       'Prepared players are reserved and cannot be assigned, replaced, removed, checked out, or placed on break elsewhere.',
-      'Record the current winner and verify that its prepared lineup is promoted into the main court view.',
+      'Record the current winner. An existing prepared lineup is promoted unchanged; if none exists, the app automatically prepares a fair next lineup when four eligible players are available.',
+      'If a strict court cannot be prepared, read its court-specific eligibility explanation. Beginner and Non-Beginner courts never relax their designation.',
       'Tap Start Game only when the physical court is ready. Credits, waiting metrics, and the timer update at that point; matchup history updates when a winner is recorded.',
       'If a reserved player needs to leave or rest, edit or remove the Up Next lineup first.',
       'Set each court’s optional time limit under Court Names, Skill & Timer. The active match keeps the limit it had when Start Game was tapped.',
@@ -131,7 +147,9 @@ var ROLE_HELP = {
       'If the fairest four players have a one-and-three skill mix, the app uses the closest possible teams instead of leaving the court empty.',
       'Use QR & Links to explain and share Player Check-In, View Only, or Controller access.',
       'Use player and standings search, Court Display, display preferences, Session Rules, and announcements for larger sessions. Large Room Mode activates automatically at 50 players.',
-      'Live Activity connects only while opened. Repeated actions are safely deduplicated, and Undo preserves unrelated later check-ins by restoring only changed fields.',
+      'Live Activity subscribes only while its tab is open. Each deliberate action has a unique intent, so Prepare → Remove → Prepare and Prepare → Undo → Prepare work normally.',
+      'Only change the room while its status is Live. Syncing waits for your committed revision; Reconnecting keeps the last confirmed view, retries automatically, and offers Retry Now without requiring a refresh.',
+      'Undo preserves unrelated later check-ins by restoring only changed fields.',
       'Organizer only: Undo, Reset All, Clear All Players, Reset Stats, and End Session.'
     ]
   }
@@ -179,10 +197,6 @@ function actionHash(value) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(36);
-}
-
-function stableActionId(type, dedupeKey) {
-  return 'a_' + actionHash([roomId, type, dedupeKey].join('|'));
 }
 
 function playTurnSound() {
@@ -245,6 +259,7 @@ function setAuthMessage(title, copy, showGoogleButton) {
   overlay.querySelector('.auth-title').textContent = title;
   overlay.querySelector('.auth-sub').textContent = copy;
   document.getElementById('signInBtn').style.display = showGoogleButton ? '' : 'none';
+  document.getElementById('signInBtn').disabled = !showGoogleButton;
 }
 
 function showAuthError(message) {
@@ -261,6 +276,9 @@ function hideAuth() {
 function openModal(options) {
   options = options || {};
   var overlay = document.getElementById('appModal');
+  modalReturnFocus = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+  modalOptions = options;
+  overlay.setAttribute('role', options.alert ? 'alertdialog' : 'dialog');
   document.getElementById('modalTitle').textContent = options.title || '';
   document.getElementById('modalCopy').textContent = options.copy || '';
   var modalBody = document.getElementById('modalBody');
@@ -269,19 +287,108 @@ function openModal(options) {
   document.getElementById('modalActions').innerHTML = '';
   var close = document.getElementById('modalCloseBtn');
   close.style.display = options.closable === false ? 'none' : '';
-  close.onclick = options.onClose || closeModal;
+  close.disabled = false;
+  close.onclick = dismissModal;
   overlay.onclick = function (event) {
-    if (event.target === overlay && options.closable !== false) closeModal();
+    if (event.target === overlay && options.closable !== false) dismissModal();
   };
+  document.querySelector('.app-header').inert = true;
+  document.querySelector('.container').inert = true;
   overlay.classList.add('visible');
+  document.addEventListener('keydown', handleModalKeydown);
+  setTimeout(function () {
+    var preferred = options.initialFocus ? overlay.querySelector(options.initialFocus) : null;
+    var focusable = preferred || overlay.querySelector('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])');
+    if (focusable) focusable.focus();
+  }, 20);
   return {
     body: modalBody,
     actions: document.getElementById('modalActions')
   };
 }
 
+function dismissModal() {
+  var onClose = modalOptions && modalOptions.onClose;
+  if (onClose) onClose();
+  else closeModal();
+}
+
+function handleModalKeydown(event) {
+  var overlay = document.getElementById('appModal');
+  if (!overlay.classList.contains('visible')) return;
+  if (event.key === 'Escape' && (!modalOptions || modalOptions.closable !== false)) {
+    event.preventDefault();
+    dismissModal();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  var focusable = Array.prototype.slice.call(overlay.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'))
+    .filter(function (element) { return element.offsetParent !== null; });
+  if (!focusable.length) { event.preventDefault(); return; }
+  var first = focusable[0];
+  var last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+}
+
 function closeModal() {
-  document.getElementById('appModal').classList.remove('visible');
+  var overlay = document.getElementById('appModal');
+  overlay.classList.remove('visible');
+  document.removeEventListener('keydown', handleModalKeydown);
+  document.querySelector('.app-header').inert = false;
+  document.querySelector('.container').inert = false;
+  document.getElementById('modalCloseBtn').disabled = true;
+  modalOptions = null;
+  var returnFocus = modalReturnFocus;
+  modalReturnFocus = null;
+  if (returnFocus && document.contains(returnFocus)) setTimeout(function () { returnFocus.focus(); }, 0);
+}
+
+function confirmAction(options) {
+  return new Promise(function (resolve) {
+    options = options || {};
+    var modal = openModal({
+      title: options.title || 'Confirm action',
+      copy: options.copy || '',
+      body: '<div class="modal-inline-error" id="confirmActionError" role="alert"></div>',
+      alert: true,
+      initialFocus: '#confirmCancelBtn',
+      onClose: function () { closeModal(); resolve(null); }
+    });
+    var cancel = document.createElement('button');
+    cancel.id = 'confirmCancelBtn';
+    cancel.type = 'button';
+    cancel.className = 'btn btn-ghost';
+    cancel.textContent = 'Cancel';
+    cancel.onclick = function () { closeModal(); resolve(null); };
+    var confirmButton = document.createElement('button');
+    confirmButton.type = 'button';
+    confirmButton.className = 'btn ' + (options.danger === false ? 'btn-accent' : 'btn-danger');
+    confirmButton.textContent = options.confirmLabel || 'Confirm';
+    confirmButton.onclick = function () {
+      cancel.disabled = true;
+      confirmButton.disabled = true;
+      confirmButton.textContent = 'Working…';
+      document.querySelector('.modal-card').setAttribute('aria-busy', 'true');
+      Promise.resolve().then(options.action).then(function (result) {
+        document.querySelector('.modal-card').removeAttribute('aria-busy');
+        if (result === null || result === false || (result && result.changed === false)) {
+          throw new Error((result && result.reason) || options.failureMessage || 'The action could not be completed. Please try again.');
+        }
+        closeModal();
+        resolve(result);
+      }).catch(function (error) {
+        document.querySelector('.modal-card').removeAttribute('aria-busy');
+        document.getElementById('confirmActionError').textContent = error.message || 'The action could not be completed.';
+        cancel.disabled = false;
+        confirmButton.disabled = false;
+        confirmButton.textContent = options.confirmLabel || 'Confirm';
+        confirmButton.focus();
+      });
+    };
+    modal.actions.appendChild(cancel);
+    modal.actions.appendChild(confirmButton);
+  });
 }
 
 function askText(options) {
@@ -468,7 +575,7 @@ function enablePlayerAlerts() {
 function refreshPlayerAlerts() {
   if (!linkedPlayerId || (accessMode !== 'player' && !isFullController())) return;
   if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-    alertStatus = 'unavailable'; renderSessionCard(); return;
+    alertStatus = 'unavailable'; renderSessionCard(); renderPlayerTools(); return;
   }
   alertStatus = Notification.permission === 'denied'
     ? 'blocked'
@@ -476,6 +583,7 @@ function refreshPlayerAlerts() {
       ? 'on'
       : 'available';
   renderSessionCard();
+  renderPlayerTools();
 }
 
 function currentHelpRole() {
@@ -597,6 +705,7 @@ function checkLatestVersion() {
   }).then(function (release) {
     var latest = String(release.version || '');
     if (!latest) throw new Error('Version information is unavailable.');
+    button.disabled = false;
     if (latest !== APP_VERSION) {
       button.textContent = '↻ Update to v' + latest;
       button.classList.add('update-available');
@@ -608,6 +717,7 @@ function checkLatestVersion() {
     }
     return latest;
   }).catch(function () {
+    button.disabled = false;
     if (status) status.textContent = navigator.onLine ? 'Update check unavailable' : 'Check when online';
     return null;
   });
@@ -1089,8 +1199,12 @@ function stopControllerPlaying() {
     showToast('Leave the active or Up Next lineup before switching to Controller Only.');
     return;
   }
-  if (!confirm('Stop playing as ' + player.name + ' and remain Controller Only?')) return;
-  commitControllerParticipation({ kind: 'controller_only', playerId: null });
+  return confirmAction({
+    title: 'Stop playing?',
+    copy: 'You will stop playing as ' + player.name + ' but keep controller access.',
+    confirmLabel: 'Stop Playing',
+    action: function () { return commitControllerParticipation({ kind: 'controller_only', playerId: null }); }
+  });
 }
 
 function openControllerPlayerTools() {
@@ -1101,7 +1215,8 @@ function openControllerPlayerTools() {
   var upNext = Engine.nextIds(S).indexOf(player.id) !== -1;
   var assigned = onCourt || upNext;
   var status = onCourt ? 'On court' : upNext ? 'Up Next' : player.notAvailable ? 'Taking a break' : 'Ready to play';
-  var disabled = sharedBusy || !navigator.onLine || !roomData || roomData.status !== 'active';
+  var disabled = sharedBusy || !navigator.onLine || !roomData || roomData.status !== 'active'
+    || (roomSync && !roomSync.getState().canMutate);
   var modal = openModal({
     title: 'Player Tools · ' + player.name,
     copy: 'Your controller identity remains ' + controllerName + '. These tools affect only your linked player.',
@@ -1135,6 +1250,7 @@ function initSolo() {
   appInitialised = true;
   hideAuth();
   document.getElementById('signOutWrap').style.display = 'block';
+  document.getElementById('signOutBtn').disabled = false;
   initUi();
   renderAll();
 }
@@ -1145,10 +1261,13 @@ function initSharedRoom(user) {
   setAuthMessage('Joining live game', 'Connecting to the shared rotation…', false);
   currentUser = user;
   roomRef = fbDb.collection('rooms').doc(roomId);
-  roomRef.get().then(function (snapshot) {
+  roomRef.get({ source: 'server' }).then(function (snapshot) {
     if (!snapshot.exists) throw new Error('This shared game does not exist or has expired.');
     roomData = snapshot.data();
+    initialRoomServerSnapshot = snapshot;
     S = RoomData.stateFromRoom(roomData, Engine);
+    syncStatus = roomData.status === 'ended' ? 'ended' : 'live';
+    syncLastConfirmedAt = Date.now();
     isOrganizer = roomData.hostUid === currentUser.uid;
     if (isOrganizer) accessMode = 'controller';
     if (isOrganizer) {
@@ -1201,6 +1320,7 @@ function initSharedRoom(user) {
   }).then(function () {
       hideAuth();
       document.getElementById('signOutWrap').style.display = 'block';
+      document.getElementById('signOutBtn').disabled = false;
       initUi();
       subscribeToRoom();
       maybeShowRoleHelp();
@@ -1213,39 +1333,72 @@ function initSharedRoom(user) {
 }
 
 function subscribeToRoom() {
-  if (roomUnsubscribe) roomUnsubscribe();
-  roomUnsubscribe = roomRef.onSnapshot({ includeMetadataChanges: true }, function (snapshot) {
-    if (!snapshot.exists) {
-      syncStatus = 'error';
-      showMsg('This shared game has expired or was removed.', 'error');
+  if (roomSync) roomSync.stop();
+  roomSync = LiveSync.createCoordinator({
+    isOnline: function () { return navigator.onLine; },
+    subscribe: function (next, error) {
+      return roomRef.onSnapshot({ includeMetadataChanges: true }, next, error);
+    },
+    fetchServer: function () { return roomRef.get({ source: 'server' }); },
+    onSnapshot: applyRoomSnapshot,
+    onStatus: function (state) {
+      syncStatus = state.status;
+      syncLastConfirmedAt = state.lastServerAt;
+      renderSyncRecovery();
       renderSessionCard();
-      return;
+      renderPlayerTools();
+      renderSessionActions();
+      syncControlState();
     }
-    var previousState = S;
-    roomData = snapshot.data();
-    var nextState = RoomData.stateFromRoom(roomData, Engine);
-    detectNewPlayerAssignment(previousState, nextState, roomData.revision);
-    S = nextState;
-    if (linkedPlayerId) {
-      var linkedPlayer = Engine.playerById(S, linkedPlayerId);
-      if (!linkedPlayer || !linkedPlayer.checkedIn || linkedPlayer.checkedInUid !== currentUser.uid) {
-        linkedPlayerId = null;
-        localStorage.removeItem(playerStorageKey());
-        if (isFullController()) localStorage.setItem(controllerParticipationStorageKey(), 'controller_only');
-      }
-    }
-    initialRoomSnapshotSeen = true;
-    isOrganizer = roomData.hostUid === currentUser.uid;
-    if (roomData.status === 'ended') syncStatus = 'ended';
-    else if (!navigator.onLine || snapshot.metadata.fromCache) syncStatus = 'offline';
-    else if (snapshot.metadata.hasPendingWrites || sharedBusy) syncStatus = 'syncing';
-    else syncStatus = 'connected';
-    renderAll();
-  }, function (error) {
-    syncStatus = 'error';
-    showMsg('Live sync error: ' + error.message, 'error');
-    renderSessionCard();
   });
+  roomUnsubscribe = function () { if (roomSync) roomSync.stop(); };
+  roomSync.start();
+  if (initialRoomServerSnapshot) {
+    roomSync.applySnapshot(initialRoomServerSnapshot, 'server');
+    initialRoomServerSnapshot = null;
+  }
+}
+
+function applyRoomSnapshot(parsed) {
+  if (!parsed.exists) {
+    showMsg('This shared game has expired or was removed.', 'error');
+    return;
+  }
+  var previousState = S;
+  roomData = parsed.data;
+  var nextState = RoomData.stateFromRoom(roomData, Engine);
+  detectNewPlayerAssignment(previousState, nextState, roomData.revision);
+  S = nextState;
+  if (linkedPlayerId) {
+    var linkedPlayer = Engine.playerById(S, linkedPlayerId);
+    if (!linkedPlayer || !linkedPlayer.checkedIn || linkedPlayer.checkedInUid !== currentUser.uid) {
+      linkedPlayerId = null;
+      localStorage.removeItem(playerStorageKey());
+      if (isFullController()) localStorage.setItem(controllerParticipationStorageKey(), 'controller_only');
+    }
+  }
+  initialRoomSnapshotSeen = true;
+  isOrganizer = roomData.hostUid === currentUser.uid;
+  renderAll();
+}
+
+function retryRoomSync() {
+  if (!roomSync || !navigator.onLine) return;
+  roomSync.retryNow();
+}
+
+function renderSyncRecovery() {
+  var bar = document.getElementById('syncRecoveryBar');
+  if (!bar) return;
+  var degraded = !!roomId && ['reconnecting', 'error'].indexOf(syncStatus) !== -1;
+  bar.hidden = !degraded;
+  document.body.classList.toggle('sync-degraded', degraded);
+  if (!degraded) return;
+  document.getElementById('syncRecoveryTitle').textContent = syncStatus === 'error' ? 'Live updates need attention' : 'Reconnecting to live game…';
+  document.getElementById('syncRecoveryCopy').textContent = syncLastConfirmedAt
+    ? 'Last confirmed ' + new Date(syncLastConfirmedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '. Your last valid game remains visible.'
+    : 'Your last valid game remains visible while the connection recovers.';
+  document.getElementById('syncRetryBtn').disabled = !navigator.onLine;
 }
 
 function subscribeToEvents() {
@@ -1273,12 +1426,85 @@ function subscribeToEvents() {
     });
 }
 
+var APP_TABS = ['game', 'players', 'results', 'activity', 'session'];
+
+function visibleAppTabs() {
+  return APP_TABS.filter(function (tab) { return tab !== 'activity' || !!roomId; });
+}
+
+function selectAppTab(tab, options) {
+  options = options || {};
+  var visible = visibleAppTabs();
+  document.getElementById('appTabList').style.gridTemplateColumns = 'repeat(' + visible.length + ', minmax(0, 1fr))';
+  if (visible.indexOf(tab) === -1) tab = 'game';
+  activeTab = tab;
+  document.querySelectorAll('[data-app-tab]').forEach(function (button) {
+    var selected = button.getAttribute('data-app-tab') === tab;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-selected', selected ? 'true' : 'false');
+    button.tabIndex = selected ? 0 : -1;
+    button.hidden = visible.indexOf(button.getAttribute('data-app-tab')) === -1;
+    if (selected && options.focus) button.focus();
+  });
+  document.querySelectorAll('[data-tab-panel]').forEach(function (panel) {
+    panel.hidden = panel.getAttribute('data-tab-panel') !== tab;
+  });
+  var wasActivityOpen = activityOpen;
+  activityOpen = !!roomId && tab === 'activity';
+  if (activityOpen && !wasActivityOpen) subscribeToEvents();
+  else if (!activityOpen && wasActivityOpen && eventsUnsubscribe) {
+    eventsUnsubscribe();
+    eventsUnsubscribe = null;
+    activityLoading = false;
+  }
+  var label = tab.charAt(0).toUpperCase() + tab.slice(1);
+  document.title = label + ' — Pickleball Game Rotation';
+  if (tab === 'activity') renderActivitySection();
+}
+
+function initAppTabs() {
+  document.querySelectorAll('[data-app-tab]').forEach(function (button) {
+    button.disabled = false;
+    button.onclick = function () { selectAppTab(button.getAttribute('data-app-tab')); };
+    button.onkeydown = function (event) {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(event.key) === -1) return;
+      event.preventDefault();
+      var tabs = visibleAppTabs();
+      var current = tabs.indexOf(button.getAttribute('data-app-tab'));
+      var target = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      selectAppTab(tabs[target], { focus: true });
+    };
+  });
+  selectAppTab('game');
+}
+
+function clearPlayerSearch() {
+  var input = document.getElementById('playerSearch');
+  input.value = '';
+  playerSearchQuery = '';
+  playerVisibleLimit = LARGE_ROOM_PAGE_SIZE;
+  renderPlayerList();
+  syncControlState();
+  input.focus();
+}
+
+function clearStandingsSearch() {
+  var input = document.getElementById('standingsSearch');
+  input.value = '';
+  standingsSearchQuery = '';
+  standingsVisibleLimit = LARGE_ROOM_PAGE_SIZE;
+  renderLeaderboard();
+  input.focus();
+}
+
 function initUi() {
   var playerInput = document.getElementById('playerInput');
   playerInput.onkeydown = function (event) { if (event.key === 'Enter') { event.preventDefault(); addPlayer(); } };
   var playerSearch = document.getElementById('playerSearch');
   playerSearch.oninput = function () {
     playerSearchQuery = playerSearch.value.trim().toLowerCase();
+    document.getElementById('playerSearchClear').hidden = !playerSearchQuery;
     playerVisibleLimit = LARGE_ROOM_PAGE_SIZE;
     renderPlayerList();
     syncControlState();
@@ -1286,9 +1512,16 @@ function initUi() {
   var standingsSearch = document.getElementById('standingsSearch');
   standingsSearch.oninput = function () {
     standingsSearchQuery = standingsSearch.value.trim().toLowerCase();
+    document.getElementById('standingsSearchClear').hidden = !standingsSearchQuery;
     standingsVisibleLimit = LARGE_ROOM_PAGE_SIZE;
     renderLeaderboard();
   };
+  document.getElementById('playerSearchClear').onclick = clearPlayerSearch;
+  document.getElementById('standingsSearchClear').onclick = clearStandingsSearch;
+  document.getElementById('playerSearchClear').disabled = false;
+  document.getElementById('standingsSearchClear').disabled = false;
+  document.getElementById('syncRetryBtn').onclick = retryRoomSync;
+  initAppTabs();
   applyDisplayPreferences();
   updateOnlineStatus();
 }
@@ -1308,6 +1541,11 @@ function eventExpiry() {
   return Timestamp.fromMillis(Date.now() + THIRTY_DAYS + 24 * 60 * 60 * 1000);
 }
 
+function isUncertainMutationError(error) {
+  var code = String(error && error.code || '').toLowerCase().replace(/^firestore\//, '');
+  return ['unavailable', 'deadline-exceeded', 'unknown', 'internal', 'resource-exhausted'].indexOf(code) !== -1;
+}
+
 function runAction(type, reducer, options) {
   options = options || {};
   if (!roomId) {
@@ -1321,22 +1559,27 @@ function runAction(type, reducer, options) {
     if (localResult.message) showToast(localResult.message);
     return Promise.resolve(localResult);
   }
-  if (!navigator.onLine) { showToast('Reconnect to control the shared game.'); return Promise.resolve(null); }
+  var syncCanMutate = roomSync ? roomSync.getState().canMutate : syncStatus === 'live';
+  if (!navigator.onLine || !syncCanMutate) { showToast('Wait for Live status before changing the shared game.'); return Promise.resolve(null); }
   if (!roomData || roomData.status !== 'active') { showToast('This shared session is read-only.'); return Promise.resolve(null); }
   if (accessMode === 'viewer' && !isOrganizer) { showToast('This is a view-only link.'); return Promise.resolve(null); }
   if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only change your own availability and skill level.'); return Promise.resolve(null); }
   if (options.hostOnly && !isOrganizer) { showToast('Only the organizer can do that.'); return Promise.resolve(null); }
 
   var eventRef = fbDb.collection('roomEvents').doc();
-  var actionId = options.dedupeKey ? stableActionId(type, options.dedupeKey) : eventRef.id;
-  if (inFlightActionKeys.has(actionId)) return Promise.resolve({ changed: false, deduplicated: true });
-  inFlightActionKeys.add(actionId);
+  var actionId = eventRef.id;
+  var inFlightKey = type + '|' + (options.inFlightKey || options.dedupeKey || 'default');
+  if (inFlightActionKeys.has(inFlightKey)) return Promise.resolve({ changed: false, pending: true });
+  inFlightActionKeys.add(inFlightKey);
   sharedBusy = true;
-  syncStatus = 'syncing';
+  if (roomSync) roomSync.beginMutation();
+  else syncStatus = 'syncing';
   renderSessionCard();
+  renderPlayerTools();
   syncControlState();
   var resultForMessage = null;
   var wasDeduplicated = false;
+  var committedRevision = null;
 
   return fbDb.runTransaction(function (transaction) {
     return transaction.get(roomRef).then(function (snapshot) {
@@ -1347,13 +1590,17 @@ function runAction(type, reducer, options) {
       if (RoomData.recentActionIds(data).indexOf(actionId) !== -1) {
         wasDeduplicated = true;
         resultForMessage = { changed: false, deduplicated: true };
-        return;
+        return Number(data.revision) || 0;
       }
       var beforeState = RoomData.stateFromRoom(data, Engine);
       var nextState = Engine.clone(beforeState);
       var result = reducer(nextState);
-      if (!result || result.changed === false) throw new Error((result && result.reason) || 'Nothing changed.');
       resultForMessage = result;
+      if (!result || result.changed === false) {
+        var logicalError = new Error((result && result.reason) || 'Nothing changed.');
+        logicalError.code = 'action-precondition';
+        throw logicalError;
+      }
       var nextRevision = (Number(data.revision) || 0) + 1;
       var stack = Array.isArray(data.undoStack) ? data.undoStack.slice() : [];
       var undoable = options.undoable !== false;
@@ -1388,19 +1635,47 @@ function runAction(type, reducer, options) {
       };
       if (undoable) eventData.undoPatch = RoomData.createUndoPatch(beforeState, nextState);
       transaction.set(eventRef, eventData);
+      return nextRevision;
     });
-  }).then(function () {
+  }).then(function (revision) {
+    committedRevision = Number(revision) || 0;
+    if (roomSync) roomSync.awaitRevision(committedRevision);
     if (wasDeduplicated) showToast('That action was already applied.');
     else if (resultForMessage && resultForMessage.message) showToast(resultForMessage.message);
     clearMsg();
     return resultForMessage;
   }).catch(function (error) {
-    showToast(error.message || 'Could not update the shared game.');
-    return null;
+    if (error && error.code === 'action-precondition') {
+      if (roomSync) roomSync.cancelMutation();
+      showToast(error.message || 'Nothing changed.');
+      return null;
+    }
+    if (!navigator.onLine) {
+      showToast('Connection was lost before the update could be confirmed.');
+      return null;
+    }
+    if (!isUncertainMutationError(error)) {
+      if (roomSync) roomSync.cancelMutation();
+      showToast(error.message || 'Could not update the shared game.');
+      return null;
+    }
+    return roomRef.get({ source: 'server' }).then(function (snapshot) {
+      if (snapshot.exists && RoomData.recentActionIds(snapshot.data()).indexOf(actionId) !== -1) {
+        if (roomSync) roomSync.applySnapshot(snapshot, 'server');
+        committedRevision = Number(snapshot.data().revision) || 0;
+        showToast((resultForMessage && resultForMessage.message) || 'Update confirmed after reconnecting.');
+        return resultForMessage || { changed: true, recovered: true };
+      }
+      showToast(error.message || 'Could not update the shared game.');
+      return null;
+    }).catch(function () {
+      showToast(error.message || 'Could not confirm the shared update. Retry when the game is Live.');
+      if (roomSync) roomSync.reconnect(true);
+      return null;
+    });
   }).finally(function () {
-    inFlightActionKeys.delete(actionId);
+    inFlightActionKeys.delete(inFlightKey);
     sharedBusy = false;
-    syncStatus = navigator.onLine ? 'connected' : 'offline';
     renderSessionCard();
     syncControlState();
   });
@@ -1456,25 +1731,33 @@ function removePlayer(index) {
   var player = S.players[index];
   if (!player) return;
   if (Engine.lockedIds(S).indexOf(player.id) !== -1) { showToast(player.name + ' is on court or reserved Up Next.'); return; }
-  if (!confirm('Remove "' + player.name + '" from the list?')) return;
-  runAction('player_removed', function (state) {
-    var target = state.players.find(function (item) { return item.id === player.id; });
-    if (!target || Engine.lockedIds(state).indexOf(target.id) !== -1) return { changed: false, reason: 'Player is no longer removable.' };
-    state.players = state.players.filter(function (item) { return item.id !== target.id; });
-    return { changed: true, message: target.name + ' removed.', summary: 'Removed player ' + target.name };
+  return confirmAction({
+    title: 'Remove ' + player.name + '?',
+    copy: 'Their current player entry will be removed from this session.',
+    confirmLabel: 'Remove Player',
+    action: function () { return runAction('player_removed', function (state) {
+      var target = state.players.find(function (item) { return item.id === player.id; });
+      if (!target || Engine.lockedIds(state).indexOf(target.id) !== -1) return { changed: false, reason: 'Player is no longer removable.' };
+      state.players = state.players.filter(function (item) { return item.id !== target.id; });
+      return { changed: true, message: target.name + ' removed.', summary: 'Removed player ' + target.name };
+    }); }
   });
 }
 
 function clearAllPlayers() {
   if (!S.players.length) { showToast('No players to clear.'); return; }
-  if (!confirm('Clear every player, court, statistic, and game record?')) return;
-  runAction('players_cleared', function (state) {
-    var courts = state.courts;
-    var fresh = Engine.createState(courts);
-    Object.keys(state).forEach(function (key) { delete state[key]; });
-    Object.assign(state, fresh);
-    return { changed: true, message: 'All players and game data cleared.', summary: 'Cleared all players and game data' };
-  }, { hostOnly: true, dedupeKey: 'clear_players:' + (roomData ? roomData.revision : S.rotationRound) });
+  return confirmAction({
+    title: 'Clear the entire game?',
+    copy: 'This removes every player, court assignment, statistic, and game record. Court settings return to defaults.',
+    confirmLabel: 'Clear Entire Game',
+    action: function () { return runAction('players_cleared', function (state) {
+      var courts = state.courts;
+      var fresh = Engine.createState(courts);
+      Object.keys(state).forEach(function (key) { delete state[key]; });
+      Object.assign(state, fresh);
+      return { changed: true, message: 'All players and game data cleared.', summary: 'Cleared all players and game data' };
+    }, { hostOnly: true, dedupeKey: 'clear_players:' + (roomData ? roomData.revision : S.rotationRound) }); }
+  });
 }
 
 function toggleNotAvailable(index) {
@@ -1497,9 +1780,18 @@ function setCourts(count) {
   count = Number(count);
   if (count === S.courts) return;
   if (count < S.courts && S.courtStates.slice(count).some(function (court) { return court.status === 'playing' || court.nextGame; })) {
-    if (!confirm('Reducing courts will remove active or Up Next games on those courts. Continue?')) return;
+    return confirmAction({
+      title: 'Reduce to ' + count + ' court' + (count === 1 ? '' : 's') + '?',
+      copy: 'Active or Up Next games on the removed courts will be cleared.',
+      confirmLabel: 'Reduce Courts',
+      action: function () { return applyCourtCount(count); }
+    });
   }
-  runAction('courts_changed', function (state) {
+  return applyCourtCount(count);
+}
+
+function applyCourtCount(count) {
+  return runAction('courts_changed', function (state) {
     Engine.initCourtStates(state, count);
     return { changed: true, message: 'Now using ' + count + ' court' + (count === 1 ? '' : 's') + '.', summary: 'Changed court count to ' + count };
   });
@@ -1585,10 +1877,55 @@ function setCourtTimeLimit(index, value) {
   }, { dedupeKey: 'court:' + index + ':timer:' + previous + ':' + (limit == null ? 'off' : limit) + ':' + (roomData ? roomData.revision : S.rotationRound) });
 }
 
+function preparationFailureCopy(index, result) {
+  var court = S.courtStates[index];
+  var courtName = court ? Engine.courtDisplayName(court) : 'Court ' + (index + 1);
+  if (!result) return courtName + ': the next lineup could not be prepared. Try again when the game is Live.';
+  if (result.reasonCode !== 'insufficient_eligible' || !result.breakdown) return courtName + ': ' + (result.reason || 'the next lineup could not be prepared.');
+  var breakdown = result.breakdown;
+  var reasons = [];
+  if (breakdown.onCourt) reasons.push(breakdown.onCourt + ' on court');
+  if (breakdown.upNext) reasons.push(breakdown.upNext + ' already Up Next');
+  if (breakdown.takingBreak) reasons.push(breakdown.takingBreak + ' taking a break');
+  if (breakdown.unconfirmed) reasons.push(breakdown.unconfirmed + ' skill unconfirmed');
+  if (breakdown.skillMismatch) reasons.push(breakdown.skillMismatch + ' in another skill group');
+  return courtName + ' needs ' + (result.requiredCount || 4) + ' eligible players, but has ' + (result.eligibleCount || 0)
+    + (reasons.length ? ' (' + reasons.join(', ') + ').' : '.');
+}
+
+function setPreparationFailure(index, result) {
+  preparationFeedbackItems = preparationFeedbackItems.filter(function (item) { return item.courtIndex !== index; });
+  preparationFeedbackItems.push({ courtIndex: index, copy: preparationFailureCopy(index, result) });
+}
+
+function showPreparationFailure(index, result) {
+  setPreparationFailure(index, result);
+  renderPreparationFeedback();
+}
+
+function clearPreparationFailure(index) {
+  preparationFeedbackItems = preparationFeedbackItems.filter(function (item) { return item.courtIndex !== index; });
+  renderPreparationFeedback();
+}
+
+function renderPreparationFeedback() {
+  var element = document.getElementById('preparationFeedback');
+  if (!element) return;
+  preparationFeedbackItems = preparationFeedbackItems.filter(function (item) {
+    return S.courtStates[item.courtIndex] && !S.courtStates[item.courtIndex].nextGame;
+  });
+  element.hidden = !preparationFeedbackItems.length;
+  element.innerHTML = preparationFeedbackItems.length
+    ? '<strong>Why some courts were not prepared</strong><ul>' + preparationFeedbackItems.map(function (item) { return '<li>' + esc(item.copy) + '</li>'; }).join('') + '</ul>'
+    : '';
+}
+
 function generateForCourt(index) {
   var expectedGame = S.courtStates[index] ? (Number(S.courtStates[index].gameNum) || 0) + 1 : 0;
-  runAction('next_game_prepared', function (state) {
+  var preparationResult = null;
+  return runAction('next_game_prepared', function (state) {
     var result = Engine.prepareNextGame(state, index);
+    preparationResult = result;
     if (!result.changed) return result;
     var names = result.nextGame.teamA.concat(result.nextGame.teamB).map(function (id) { return Engine.playerName(state, id); });
     return {
@@ -1596,17 +1933,25 @@ function generateForCourt(index) {
       message: Engine.courtDisplayName(result.court) + ' — Game ' + result.nextGame.gameNum + ' is prepared Up Next.',
       summary: 'Prepared Up Next on ' + Engine.courtDisplayName(result.court) + ': ' + names.join(', ')
     };
-  }, { dedupeKey: 'court:' + index + ':prepare:' + expectedGame });
+  }, { dedupeKey: 'court:' + index + ':prepare:' + expectedGame }).then(function (result) {
+    if (!result || !result.changed) showPreparationFailure(index, preparationResult);
+    else clearPreparationFailure(index);
+    return result;
+  });
 }
 
 function fillAvailableCourts() {
-  runAction('courts_and_next_prepared', function (state) {
+  var failures = [];
+  return runAction('courts_and_next_prepared', function (state) {
     var filled = [];
     var skipped = [];
     Engine.courtPreparationOrder(state).forEach(function (index) {
       var result = Engine.prepareNextGame(state, index);
       if (result.changed) filled.push(Engine.courtDisplayName(result.court));
-      else skipped.push(result.reason);
+      else {
+        skipped.push(result.reason);
+        if (result.reasonCode !== 'already_prepared') failures.push({ courtIndex: index, result: result });
+      }
     });
     if (!filled.length) return { changed: false, reason: skipped[0] || 'Every court already has an active or Up Next lineup.' };
     return {
@@ -1614,7 +1959,12 @@ function fillAvailableCourts() {
       message: 'Prepared ' + filled.length + ' fair lineup' + (filled.length === 1 ? '' : 's') + '.',
       summary: 'Prepared courts and Up Next for ' + filled.join(', ')
     };
-  }, { dedupeKey: 'bulk_prepare:' + (roomData ? roomData.revision : S.rotationRound) });
+  }, { dedupeKey: 'bulk_prepare:' + (roomData ? roomData.revision : S.rotationRound) }).then(function (result) {
+    if (result && result.changed) preparationFeedbackItems = [];
+    failures.forEach(function (failure) { setPreparationFailure(failure.courtIndex, failure.result); });
+    renderPreparationFeedback();
+    return result;
+  });
 }
 
 function startStagedGame(index) {
@@ -1634,13 +1984,17 @@ function startStagedGame(index) {
 function cancelStagedGame(index) {
   var court = S.courtStates[index];
   if (!court || !court.nextGame) return;
-  if (!confirm('Remove the Up Next lineup from ' + Engine.courtDisplayName(court) + '?')) return;
-  runAction('next_game_removed', function (state) {
-    var targetName = Engine.courtDisplayName(state.courtStates[index]);
-    var result = Engine.clearNextGame(state, index);
-    if (!result.changed) return result;
-    return { changed: true, message: targetName + ' Up Next lineup removed.', summary: 'Removed Up Next lineup from ' + targetName };
-  }, { dedupeKey: 'court:' + index + ':remove_next:' + court.nextGame.gameNum });
+  return confirmAction({
+    title: 'Remove this Up Next lineup?',
+    copy: 'The four reserved players on ' + Engine.courtDisplayName(court) + ' will return to the available pool.',
+    confirmLabel: 'Remove Lineup',
+    action: function () { return runAction('next_game_removed', function (state) {
+      var targetName = Engine.courtDisplayName(state.courtStates[index]);
+      var result = Engine.clearNextGame(state, index);
+      if (!result.changed) return result;
+      return { changed: true, message: targetName + ' Up Next lineup removed.', summary: 'Removed Up Next lineup from ' + targetName };
+    }, { dedupeKey: 'court:' + index + ':remove_next:' + court.nextGame.gameNum }); }
+  });
 }
 
 function openManualMatchBuilder(index) {
@@ -1712,33 +2066,49 @@ function openManualMatchBuilder(index) {
 
 function recordWinner(index, winner) {
   var currentGameNum = S.courtStates[index] ? S.courtStates[index].gameNum : 0;
-  runAction('winner_recorded', function (state) {
-    var result = Engine.recordWinner(state, index, winner);
+  var autoPreparation = null;
+  return runAction('winner_recorded', function (state) {
+    var result = Engine.recordWinnerAndPrepareNext(state, index, winner);
     if (!result.changed) return { changed: false, reason: 'This game is no longer active.' };
+    autoPreparation = result.autoPreparation || null;
     var names = result.winners.map(function (id) { return Engine.playerName(state, id); });
     var timing = result.historyEntry && result.historyEntry.finishedAfterTimeLimit ? ' after the time limit' : '';
+    var nextCopy = result.promotedPreparedGame ? ' The prepared lineup is ready to start.'
+      : result.autoPreparedNext ? ' A fair next lineup is ready to start.' : '';
     return {
       changed: true,
-      message: Engine.courtDisplayName(result.court) + ' — ' + names.join(' & ') + ' won' + timing + '! 🏆',
-      summary: 'Recorded ' + names.join(' & ') + ' as winners on ' + Engine.courtDisplayName(result.court) + timing
+      message: Engine.courtDisplayName(result.court) + ' — ' + names.join(' & ') + ' won' + timing + '! 🏆' + nextCopy,
+      summary: 'Recorded ' + names.join(' & ') + ' as winners on ' + Engine.courtDisplayName(result.court) + timing + nextCopy
     };
-  }, { dedupeKey: 'court:' + index + ':winner:' + currentGameNum });
+  }, { dedupeKey: 'court:' + index + ':winner:' + currentGameNum }).then(function (result) {
+    if (result && result.changed && autoPreparation && !autoPreparation.changed) showPreparationFailure(index, autoPreparation);
+    else if (result && result.changed) clearPreparationFailure(index);
+    return result;
+  });
 }
 
 function resetAllCourts() {
-  if (!confirm('Reset all courts and clear game history? Player statistics will be kept.')) return;
-  runAction('courts_reset', function (state) {
-    Engine.resetCourts(state);
-    return { changed: true, message: 'All courts reset. Statistics preserved.', summary: 'Reset all courts and game history' };
-  }, { hostOnly: true, dedupeKey: 'reset_courts:' + (roomData ? roomData.revision : S.rotationRound) });
+  return confirmAction({
+    title: 'Reset all courts?',
+    copy: 'Active and Up Next games plus game history will be cleared. Player statistics and court settings are kept.',
+    confirmLabel: 'Reset Courts',
+    action: function () { return runAction('courts_reset', function (state) {
+      Engine.resetCourts(state);
+      return { changed: true, message: 'All courts reset. Statistics preserved.', summary: 'Reset all courts and game history' };
+    }, { hostOnly: true, dedupeKey: 'reset_courts:' + (roomData ? roomData.revision : S.rotationRound) }); }
+  });
 }
 
 function resetStats() {
-  if (!confirm('Reset games, wins, matchup history, and game history?')) return;
-  runAction('statistics_reset', function (state) {
-    Engine.resetStatistics(state);
-    return { changed: true, message: 'Player statistics reset.', summary: 'Reset all statistics and matchup history' };
-  }, { hostOnly: true, dedupeKey: 'reset_stats:' + (roomData ? roomData.revision : S.rotationRound) });
+  return confirmAction({
+    title: 'Reset all statistics?',
+    copy: 'Games, wins, matchup history, and game history return to zero. The roster stays in place.',
+    confirmLabel: 'Reset Statistics',
+    action: function () { return runAction('statistics_reset', function (state) {
+      Engine.resetStatistics(state);
+      return { changed: true, message: 'Player statistics reset.', summary: 'Reset all statistics and matchup history' };
+    }, { hostOnly: true, dedupeKey: 'reset_stats:' + (roomData ? roomData.revision : S.rotationRound) }); }
+  });
 }
 
 function startSwap(courtIndex, team, playerIndex) {
@@ -1989,6 +2359,7 @@ function createSharedRoom() {
     }).catch(function (error) {
       syncStatus = 'error';
       renderSessionCard();
+      renderPlayerTools();
       showToast('Could not create shared room: ' + error.message);
     });
   });
@@ -2034,9 +2405,9 @@ function renderAccessQr(mode) {
   document.getElementById('accessLinkLabel').textContent = accessLabel(mode) + ' link';
   document.getElementById('accessLinkUrl').textContent = url;
   var summaries = {
-    player: 'Players can enroll or check in, manage their own availability and level, see active and Up Next teams, and receive a free alert as soon as their lineup is prepared while the app is running.',
-    viewer: 'Viewers can follow active matches, reserved Up Next lineups, timers, standings, history, activity, and summaries, but cannot change the game.',
-    controller: 'Controllers can prepare, manually edit, or remove one Up Next lineup per court while matches continue, then record the winner and start the promoted game when the court is ready.'
+    player: 'Players use the same five tabs to enroll or check in, manage only their availability and level, see active and Up Next teams, and receive a free alert when their lineup is prepared while the app is running.',
+    viewer: 'Viewers use the same five tabs to follow active matches, reserved Up Next lineups, timers, standings, history, activity, and summaries, but all game controls stay hidden.',
+    controller: 'Controllers use task-focused tabs to prepare, manually edit, or remove Up Next lineups. Recording a winner promotes a prepared lineup or automatically prepares a fair one, but never starts it.'
   };
   document.getElementById('accessRoleSummary').textContent = summaries[mode];
   document.getElementById('accessCopyBtn').onclick = function () { copyShareLink(mode); };
@@ -2120,11 +2491,11 @@ function undoLastAction() {
   if (!roomId || !isOrganizer || !roomData || !roomData.undoStack || !roomData.undoStack.length) {
     showToast('There is no action to undo.'); return;
   }
-  if (!navigator.onLine) { showToast('Reconnect before undoing.'); return; }
+  if (!navigator.onLine || !roomSync || !roomSync.getState().canMutate) { showToast('Wait for Live status before undoing.'); return; }
   var expectedTargetId = roomData.undoStack[roomData.undoStack.length - 1];
   var undoEventRef = fbDb.collection('roomEvents').doc();
-  sharedBusy = true; syncStatus = 'syncing'; renderSessionCard();
-  fbDb.runTransaction(function (transaction) {
+  sharedBusy = true; roomSync.beginMutation(); renderSessionCard();
+  return fbDb.runTransaction(function (transaction) {
     return transaction.get(roomRef).then(function (roomSnapshot) {
       var data = roomSnapshot.data();
       if (!data || data.hostUid !== currentUser.uid || data.status !== 'active') throw new Error('Organizer permission required.');
@@ -2161,19 +2532,28 @@ function undoLastAction() {
           createdAt: FieldValue.serverTimestamp(),
           expiresAt: eventExpiry()
         });
+        return nextRevision;
       });
     });
-  }).then(function () { showToast('Last action undone.'); })
+  }).then(function (revision) { roomSync.awaitRevision(revision); showToast('Last action undone.'); })
     .catch(function (error) { showToast(error.message || 'Undo failed.'); })
-    .finally(function () { sharedBusy = false; syncStatus = navigator.onLine ? 'connected' : 'offline'; renderSessionCard(); syncControlState(); });
+    .finally(function () { sharedBusy = false; renderSessionCard(); syncControlState(); });
 }
 
 function endSharedRoom() {
   if (!isOrganizer || !roomData || roomData.status !== 'active') return;
-  if (!confirm('End this shared session? It will become read-only.')) return;
+  return confirmAction({
+    title: 'End this session?',
+    copy: 'The room becomes read-only. Its summary remains available for 30 days.',
+    confirmLabel: 'End Session',
+    action: performEndSharedRoom
+  });
+}
+
+function performEndSharedRoom() {
   var expiresAt = Timestamp.fromMillis(Date.now() + THIRTY_DAYS);
   var endEventRef = fbDb.collection('roomEvents').doc();
-  fbDb.runTransaction(function (transaction) {
+  return fbDb.runTransaction(function (transaction) {
     return transaction.get(roomRef).then(function (snapshot) {
       var data = snapshot.data();
       if (!data || data.hostUid !== currentUser.uid) throw new Error('Organizer permission required.');
@@ -2204,19 +2584,12 @@ function endSharedRoom() {
     var batch = fbDb.batch();
     snapshot.docs.forEach(function (doc) { batch.update(doc.ref, { expiresAt: expiresAt }); });
     return snapshot.empty ? null : batch.commit();
-  }).then(function () { showToast('Session ended. It is now read-only.'); })
-    .catch(function (error) { showToast(error.message || 'Could not end the session.'); });
+  }).then(function () { showToast('Session ended. It is now read-only.'); return true; });
 }
 
 function toggleHistory() { historyOpen = !historyOpen; renderHistorySection(); }
 function toggleActivity() {
-  activityOpen = !activityOpen;
-  if (activityOpen) subscribeToEvents();
-  else {
-    if (eventsUnsubscribe) { eventsUnsubscribe(); eventsUnsubscribe = null; }
-    activityLoading = false;
-    renderActivitySection();
-  }
+  selectAppTab('activity', { focus: true });
 }
 
 function formatDuration(milliseconds) {
@@ -2359,34 +2732,12 @@ function renderSessionCard() {
     card.innerHTML = '<div class="session-top"><div><div class="session-title">Personal game</div>'
       + '<div class="session-sub">Saved only on this device · Works offline</div></div>'
       + '<span class="mode-badge">📱 Solo</span></div>'
-      + (isLargeRoom() ? '<span class="large-room-badge">⚡ Large Room Mode · optimized lists</span>' : '')
-      + '<div class="session-actions"><button class="btn btn-primary" onclick="createSharedRoom()">🔗 Share Current Game</button>'
-      + '<button class="btn btn-ghost" onclick="openSessionInfoEditor()">📣 Session Info</button>'
-      + '<button class="btn btn-ghost" onclick="openDisplaySettings()">⚙ Display</button></div>';
+      + (isLargeRoom() ? '<span class="large-room-badge">⚡ Large Room Mode · optimized lists</span>' : '');
     return;
   }
-  var statusText = { connected: '● Connected', syncing: '↻ Syncing', offline: '○ Offline', error: '! Error', ended: '✓ Ended' }[syncStatus] || syncStatus;
-  var undoDisabled = !isOrganizer || !roomData || !roomData.undoStack || !roomData.undoStack.length || roomData.status !== 'active';
-  var sessionDisabled = !navigator.onLine || sharedBusy || !roomData || roomData.status !== 'active';
+  var statusText = { live: '● Live', connecting: '… Connecting', syncing: '↻ Syncing', reconnecting: '↻ Reconnecting', offline: '○ Offline', error: '! Sync Error', ended: '✓ Ended' }[syncStatus] || syncStatus;
   var roleText = isOrganizer ? 'Organizer' : accessMode === 'player' ? 'Player check-in' : accessMode === 'viewer' ? 'View only' : 'Controller';
   var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
-  var actions = '';
-  if (isFullController()) {
-    actions = '<button class="btn ' + (player ? 'btn-accent' : 'btn-ghost') + '" onclick="openControllerPlayerTools()" ' + (sessionDisabled ? 'disabled' : '') + '>'
-      + (player ? '🎾 Player Tools · ' + esc(player.name) : '🎾 Join as Player') + '</button>'
-      + '<button class="btn btn-primary" onclick="openAccessLinks()">▦ QR & Links</button>'
-      + '<button class="btn btn-ghost" onclick="shareRoomLink(\'controller\')">↗ Share Controller</button>'
-      + (isOrganizer ? '<button class="btn btn-ghost" onclick="undoLastAction()" ' + (undoDisabled ? 'disabled' : '') + '>↶ Undo</button>' : '')
-      + (isOrganizer && roomData && roomData.status === 'active' ? '<button class="btn btn-danger" onclick="endSharedRoom()">End Session</button>' : '');
-  } else if (accessMode === 'player') {
-    actions = '<button class="btn ' + (player && player.notAvailable ? 'btn-primary' : 'btn-accent') + '" onclick="toggleMyAvailability()" '
-      + (sessionDisabled ? 'disabled' : '') + '>' + (player && player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
-      + (player ? '<button class="btn btn-ghost" onclick="openSkillPicker(\'' + esc(player.id) + '\')" '
-        + (sessionDisabled ? 'disabled' : '') + '>⭐ My Skill: ' + esc(Engine.skillLevelLabel(player.skillRating))
-        + (player.skillLevelConfirmed ? '' : ' · Confirm') + '</button>' : '')
-      + '<button class="btn btn-ghost alert-status-' + esc(alertStatus) + '" onclick="enablePlayerAlerts()" '
-        + (alertStatus === 'enabling' ? 'disabled' : '') + '>' + esc(alertButtonCopy()) + '</button>';
-  }
   card.innerHTML = '<div class="session-top"><div><div class="session-title">' + esc(roomData ? roomData.name : 'Live game') + '</div>'
     + '<div class="session-sub">Live shared rotation · ' + esc(roleText) + '</div></div>'
     + '<span class="sync-badge ' + esc(syncStatus) + '">' + esc(statusText) + '</span></div>'
@@ -2394,30 +2745,81 @@ function renderSessionCard() {
     + (isFullController() ? '<div class="room-player-identity">' + (player
       ? '🎾 Playing as <strong>' + esc(player.name) + '</strong> · ' + esc(Engine.skillLevelLabel(player.skillRating)) + (player.notAvailable ? ' · Taking a break' : '')
       : '🎛 Controller Only') + '</div>' : '')
-    + (isLargeRoom() ? '<span class="large-room-badge">⚡ Large Room Mode · optimized live data</span>' : '')
-    + '<div class="session-actions">' + actions
-    + (isFullController() ? '<button class="btn btn-ghost" onclick="openSessionInfoEditor()">📣 Session Info</button>' : '')
-    + '<button class="btn btn-ghost" onclick="openDisplaySettings()">⚙ Display</button>'
-    + '<button class="btn btn-ghost" onclick="openRoleHelp()">❓ How to Use</button>'
-    + '<button class="btn btn-ghost" onclick="leaveSharedRoom()">Leave</button>'
-    + '</div>'
-    + (accessMode === 'player' && !isOrganizer ? '<div class="free-alert-note">Free alerts work while this app is open or running in the background. A fully closed app cannot receive alerts.</div>' : '');
+    + (isLargeRoom() ? '<span class="large-room-badge">⚡ Large Room Mode · optimized live data</span>' : '');
 }
 
 function renderSessionInfo() {
   var element = document.getElementById('sessionInfoSection');
   if (!element) return;
   var announcement = String(S.sessionAnnouncement || '');
-  var rules = String(S.sessionRules || '');
-  if (!announcement && !rules) {
+  if (!announcement) {
     element.innerHTML = '';
     return;
   }
-  var html = '<div class="card session-info-card">';
-  if (announcement) html += '<div class="announcement-banner" role="status"><strong>📣</strong><span>' + esc(announcement) + '</span></div>';
-  if (rules) html += '<details class="session-rules"><summary>📋 Session Rules</summary><div class="session-rules-copy">' + esc(rules) + '</div></details>';
-  if (isFullController()) html += '<div class="session-info-actions"><button class="btn btn-ghost btn-sm" onclick="openSessionInfoEditor()">✎ Edit Session Info</button></div>';
-  element.innerHTML = html + '</div>';
+  element.innerHTML = '<div class="card session-info-card"><div class="announcement-banner" role="status"><strong>📣</strong><span>' + esc(announcement) + '</span></div></div>';
+}
+
+function renderPlayerTools() {
+  var element = document.getElementById('playerToolsSection');
+  if (!element) return;
+  var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
+  var live = !roomId || (roomSync ? roomSync.getState().canMutate : syncStatus === 'live');
+  var disabled = !live || sharedBusy || (roomData && roomData.status !== 'active');
+  var tools = '';
+  if (roomId && isFullController()) {
+    tools = '<button class="btn ' + (player ? 'btn-accent' : 'btn-primary') + '" onclick="openControllerPlayerTools()" ' + (disabled ? 'disabled' : '') + '>'
+      + (player ? '🎾 Player Tools · ' + esc(player.name) : '🎾 Join as Player') + '</button>';
+  } else if (roomId && accessMode === 'player') {
+    tools = '<button class="btn ' + (player && player.notAvailable ? 'btn-primary' : 'btn-accent') + '" onclick="toggleMyAvailability()" ' + (disabled ? 'disabled' : '') + '>' + (player && player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
+      + (player ? '<button class="btn btn-ghost" onclick="openSkillPicker(\'' + esc(player.id) + '\')" ' + (disabled ? 'disabled' : '') + '>⭐ My Skill · ' + esc(Engine.skillLevelLabel(player.skillRating)) + '</button>' : '')
+      + '<button class="btn btn-ghost alert-status-' + esc(alertStatus) + '" onclick="enablePlayerAlerts()" ' + (alertStatus === 'enabling' ? 'disabled' : '') + '>' + esc(alertButtonCopy()) + '</button>';
+  }
+  element.innerHTML = tools ? '<div class="card"><div class="card-title"><span class="card-title-left">🎾 My Player</span></div><div class="session-action-grid">' + tools + '</div>'
+    + (accessMode === 'player' && !isOrganizer ? '<div class="free-alert-note">Free alerts work while this app is open or running in the background. A fully closed app cannot receive alerts.</div>' : '') + '</div>' : '';
+}
+
+function renderSessionActions() {
+  var element = document.getElementById('sessionActionsSection');
+  if (!element) return;
+  var live = !roomId || (roomSync ? roomSync.getState().canMutate : syncStatus === 'live');
+  var disabled = !live || sharedBusy || (roomData && roomData.status !== 'active');
+  var actions = '';
+  if (!roomId) {
+    actions = '<button class="btn btn-primary" onclick="createSharedRoom()">🔗 Share Current Game</button>'
+      + '<button class="btn btn-ghost" onclick="openSessionInfoEditor()">📣 Session Info</button>';
+  } else if (isFullController()) {
+    actions = '<button class="btn btn-primary" onclick="openAccessLinks()">▦ QR &amp; Links</button>'
+      + '<button class="btn btn-ghost" onclick="shareRoomLink(\'controller\')">↗ Share Controller</button>'
+      + '<button class="btn btn-ghost" onclick="openSessionInfoEditor()" ' + (disabled ? 'disabled' : '') + '>📣 Session Info</button>';
+  }
+  actions += '<button class="btn btn-ghost" onclick="openDisplaySettings()">⚙ Display Settings</button>'
+    + '<button class="btn btn-ghost" onclick="enterCourtDisplay()">⛶ Court Display</button>'
+    + '<button class="btn btn-ghost" onclick="openRoleHelp()">❓ How to Use</button>'
+    + (roomId ? '<button class="btn btn-ghost" onclick="leaveSharedRoom()">Leave Session</button>' : '');
+  var danger = '';
+  if (isOrganizer && roomData && roomData.status === 'active') {
+    var undoDisabled = disabled || !roomData.undoStack || !roomData.undoStack.length;
+    danger = '<div class="session-danger-zone"><strong>Organizer controls</strong><div class="session-action-grid">'
+      + '<button class="btn btn-ghost" onclick="undoLastAction()" ' + (undoDisabled ? 'disabled' : '') + '>↶ Undo Last Action</button>'
+      + '<button class="btn btn-ghost" onclick="resetAllCourts()" ' + (disabled ? 'disabled' : '') + '>↻ Reset Courts</button>'
+      + '<button class="btn btn-ghost" onclick="resetStats()" ' + (disabled ? 'disabled' : '') + '>Reset Statistics</button>'
+      + '<button class="btn btn-danger" onclick="clearAllPlayers()" ' + (disabled ? 'disabled' : '') + '>Clear All Players</button>'
+      + '<button class="btn btn-danger" onclick="endSharedRoom()" ' + (disabled ? 'disabled' : '') + '>End Session</button></div></div>';
+  } else if (!roomId) {
+    danger = '<div class="session-danger-zone"><strong>Reset personal game</strong><div class="session-action-grid">'
+      + '<button class="btn btn-ghost" onclick="resetAllCourts()">↻ Reset Courts</button><button class="btn btn-ghost" onclick="resetStats()">Reset Statistics</button>'
+      + '<button class="btn btn-danger" onclick="clearAllPlayers()">Clear All Players</button></div></div>';
+  }
+  element.innerHTML = '<div class="card"><div class="card-title"><span class="card-title-left">🧰 Session Tools</span></div><div class="session-action-grid">' + actions + '</div>' + danger + '</div>';
+}
+
+function renderSessionDetails() {
+  var element = document.getElementById('sessionDetailsSection');
+  if (!element) return;
+  var rules = String(S.sessionRules || '');
+  element.innerHTML = '<div class="card"><div class="card-title"><span class="card-title-left">📋 Session Rules</span>'
+    + (isFullController() ? '<button class="btn btn-ghost btn-sm" onclick="openSessionInfoEditor()">✎ Edit</button>' : '') + '</div>'
+    + (rules ? '<div class="session-rules-copy">' + esc(rules) + '</div>' : '<div class="empty-hint">No session rules have been posted.</div>') + '</div>';
 }
 
 function renderPlayerList() {
@@ -2668,13 +3070,11 @@ function renderActivitySection() {
   var element = document.getElementById('activitySection');
   if (!roomId) { element.innerHTML = ''; return; }
   var countLabel = activityEvents.length ? ' · ' + activityEvents.length + ' recent' : '';
-  var html = '<div class="card"><div class="card-title history-toggle-row" onclick="toggleActivity()"><span class="card-title-left">📝 Live Activity' + countLabel + '</span><span>' + (activityOpen ? '▲ Hide' : '▼ Show') + '</span></div>';
-  if (!activityOpen) {
-    html += '<div class="activity-state">Open this section to connect to recent activity.</div>';
-  } else if (activityLoading) {
+  var html = '<div class="card"><div class="card-title"><span class="card-title-left">📝 Live Activity' + countLabel + '</span><span class="live-data-note">Subscribed while open</span></div>';
+  if (activityLoading) {
     html += '<div class="activity-state">↻ Loading recent activity…</div>';
   } else if (activityError) {
-    html += '<div class="activity-state">' + esc(activityError) + '<button class="btn btn-ghost btn-sm" onclick="subscribeToEvents()">Try Again</button></div>';
+    html += '<div class="activity-state">' + esc(activityError) + '<button class="btn btn-ghost btn-sm" onclick="subscribeToEvents()">Retry Activity</button></div>';
   } else if (!activityEvents.length) {
     html += '<div class="empty-hint">No activity recorded yet.</div>';
   } else {
@@ -2723,7 +3123,8 @@ function syncHostControls() {
 }
 
 function syncControlState() {
-  var unavailable = !!roomId && (!navigator.onLine || sharedBusy || !roomData || roomData.status !== 'active');
+  var confirmedLive = !roomId || (roomSync ? roomSync.getState().canMutate : syncStatus === 'live');
+  var unavailable = !!roomId && (!confirmedLive || sharedBusy || !roomData || roomData.status !== 'active');
   var roleReadOnly = !!roomId && !isFullController();
   ['playerCard', 'courtSettingsCard', 'actionControls', 'courtsSection'].forEach(function (id) {
     var root = document.getElementById(id);
@@ -2754,6 +3155,10 @@ function renderAll() {
   document.body.classList.toggle('large-room-mode', isLargeRoom());
   renderSessionCard();
   renderSessionInfo();
+  renderPlayerTools();
+  renderSessionActions();
+  renderSessionDetails();
+  renderSyncRecovery();
   var courtDisplayTitle = document.getElementById('courtDisplayTitle');
   if (courtDisplayTitle) courtDisplayTitle.textContent = roomData && roomData.name ? roomData.name : 'Live Courts';
   syncCourtButtons();
@@ -2767,6 +3172,7 @@ function renderAll() {
   renderLeaderboard();
   renderHistorySection();
   renderActivitySection();
+  renderPreparationFeedback();
   syncHostControls();
   syncControlState();
 }
@@ -2777,7 +3183,9 @@ function updateOnlineStatus() {
   document.getElementById('offlineBar').textContent = roomId
     ? '📶 You’re offline — shared controls are paused until reconnection'
     : '📶 You’re offline — this personal game is still saved locally';
-  if (roomId && roomData && roomData.status !== 'ended') syncStatus = online ? (sharedBusy ? 'syncing' : 'connected') : 'offline';
+  if (roomId && roomSync) roomSync.setOnline(online);
+  else if (roomId && !online) syncStatus = 'offline';
+  renderSyncRecovery();
   renderSessionCard();
   syncControlState();
 }
@@ -2829,8 +3237,15 @@ fbAuth.onAuthStateChanged(function (user) {
 
 window.addEventListener('online', updateOnlineStatus);
 window.addEventListener('offline', updateOnlineStatus);
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible' && roomSync) roomSync.resume();
+});
+window.addEventListener('pageshow', function () {
+  if (roomSync) roomSync.resume();
+});
 window.addEventListener('beforeinstallprompt', function (event) {
   event.preventDefault(); deferredPrompt = event;
+  document.getElementById('installBtn').disabled = false;
   document.getElementById('installBanner').classList.add('visible');
 });
 document.getElementById('installBtn').addEventListener('click', function () {

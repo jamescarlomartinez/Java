@@ -20,6 +20,7 @@ const {
   where,
   writeBatch,
   runTransaction,
+  onSnapshot,
   serverTimestamp,
   Timestamp
 } = require('firebase/firestore');
@@ -398,6 +399,62 @@ test('layout metadata, action IDs, and compact undo patches are accepted', { ski
       createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
     });
   }));
+});
+
+test('controller and viewer listeners receive committed room revisions without refresh', { skip: !emulatorAvailable }, async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'rooms/room-live-listener'), room({ name: 'Listener room', lastEventId: 'seed-live' }));
+    await setDoc(doc(db, 'roomMembers/room-live-listener_controller-live'), {
+      roomId: 'room-live-listener', uid: 'controller-live', displayName: 'Controller Live', role: 'controller', playerId: null,
+      joinedAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+    await setDoc(doc(db, 'roomMembers/room-live-listener_viewer-live'), {
+      roomId: 'room-live-listener', uid: 'viewer-live', displayName: 'Viewer Live', role: 'viewer', playerId: null,
+      joinedAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+  });
+
+  const controllerDb = env.authenticatedContext('controller-live').firestore();
+  const viewerDb = env.authenticatedContext('viewer-live').firestore();
+  const viewerRoomRef = doc(viewerDb, 'rooms/room-live-listener');
+  let unsubscribe;
+  const observedRevision = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Viewer did not receive revision 1.')), 5000);
+    unsubscribe = onSnapshot(viewerRoomRef, snapshot => {
+      if (snapshot.exists() && snapshot.data().revision >= 1) {
+        clearTimeout(timer);
+        resolve(snapshot.data());
+      }
+    }, reject);
+  });
+
+  const controllerRoomRef = doc(controllerDb, 'rooms/room-live-listener');
+  const eventRef = doc(controllerDb, 'roomEvents/live-listener-event');
+  await runTransaction(controllerDb, async transaction => {
+    const snapshot = await transaction.get(controllerRoomRef);
+    const data = snapshot.data();
+    const state = JSON.parse(JSON.stringify(data.state));
+    state.players = [{ id: 'p-live', name: 'Live Player' }];
+    transaction.update(controllerRoomRef, {
+      state,
+      revision: 1,
+      lastEventId: eventRef.id,
+      undoStack: [eventRef.id],
+      recentActionIds: ['intent-live'],
+      updatedAt: serverTimestamp()
+    });
+    transaction.set(eventRef, {
+      roomId: 'room-live-listener', revision: 1, type: 'player_added', summary: 'Added Live Player',
+      actorUid: 'controller-live', actorName: 'Controller Live', actionId: 'intent-live',
+      beforeState: data.state, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+    });
+  });
+
+  const viewerState = await observedRevision;
+  if (unsubscribe) unsubscribe();
+  assert.equal(viewerState.revision, 1);
+  assert.equal(viewerState.state.players[0].name, 'Live Player');
 });
 
 test('test harness is intentionally skipped without the Firestore emulator', { skip: emulatorAvailable }, () => {

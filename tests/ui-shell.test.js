@@ -15,9 +15,12 @@ const hostingBuild = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'prep
 
 function zIndexFor(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = html.match(new RegExp(`${escaped}\\s*\\{[^}]*z-index:\\s*(\\d+)`, 'm'));
-  assert.ok(match, `Expected ${selector} to declare a numeric z-index`);
-  return Number(match[1]);
+  const match = html.match(new RegExp(`${escaped}\\s*\\{[^}]*z-index:\\s*(?:var\\((--[^)]+)\\)|(\\d+))`, 'm'));
+  assert.ok(match, `Expected ${selector} to declare a z-index`);
+  if (match[2]) return Number(match[2]);
+  const token = html.match(new RegExp(`${match[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*(\\d+)`));
+  assert.ok(token, `Expected ${match[1]} to be a numeric layer token`);
+  return Number(token[1]);
 }
 
 test('guest controller-name modal renders above the joining overlay', () => {
@@ -89,7 +92,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v28-non-beginner-label/);
+  assert.match(serviceWorker, /pickleball-v29-tabbed-live-sync/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -117,7 +120,7 @@ test('controllers choose and safely manage player participation', () => {
 test('Firebase Hosting publishes only the explicit app bundle', () => {
   assert.equal(firebaseConfig.hosting.public, '.firebase-public');
   assert.equal(firebaseConfig.hosting.predeploy, 'node scripts/prepare-hosting.js');
-  for (const requiredFile of ['index.html', 'app.js', 'rotation-engine.js', 'room-data.js', 'sw.js', 'vendor/qrcode.js']) {
+  for (const requiredFile of ['index.html', 'app.js', 'rotation-engine.js', 'room-data.js', 'live-sync.js', 'sw.js', 'vendor/qrcode.js']) {
     assert.match(hostingBuild, new RegExp(requiredFile.replace('.', '\\.')));
   }
   assert.doesNotMatch(hostingBuild, /README\.md|package-lock|firestore\.rules|src\//);
@@ -148,9 +151,9 @@ test('each shared role has context help and QR access summaries', () => {
   assert.match(app, /❓ How to Use/);
   assert.match(app, /pickleballHelpSeen_/);
   assert.match(app, /accessRoleSummary/);
-  assert.match(app, /var ROLE_HELP_VERSION = 'v9'/);
+  assert.match(app, /var ROLE_HELP_VERSION = 'v10'/);
   assert.match(app, /Prepare Courts & Up Next/);
-  assert.match(app, /prepared lineup moves into the main court view/);
+  assert.match(app, /automatically prepares a fair next lineup/);
   assert.match(app, /ask a controller to edit or remove your prepared assignment/i);
   assert.match(app, /two-and-two mixed games and all-one-level games as equally balanced/i);
   assert.match(app, /one-and-three skill mix/i);
@@ -191,7 +194,7 @@ test('per-court Up Next, timers, manual builder, court names, and session export
   assert.match(app, /Engine\.courtDisplayName/);
   assert.match(app, /data-court-timer/);
   assert.match(app, /function updateCourtTimers/);
-  assert.match(html, /Summary & Export/);
+  assert.match(html, /Summary &amp; Export/);
   assert.match(app, /function openSessionSummary/);
   assert.match(app, /function exportSessionCsv/);
   assert.match(app, /text\/csv/);
@@ -212,15 +215,18 @@ test('per-court time limits reuse the timer and settings surfaces without score 
 });
 
 test('live activity subscribes only while the section is open', () => {
-  assert.match(app, /function toggleActivity\(\)[\s\S]*if \(activityOpen\) subscribeToEvents\(\)/);
+  assert.match(app, /activityOpen = !!roomId && tab === 'activity'/);
+  assert.match(app, /if \(activityOpen && !wasActivityOpen\) subscribeToEvents\(\)/);
   assert.match(app, /\.limit\(activityQueryLimit\(\)\)/);
-  assert.match(app, /Open this section to connect to recent activity/);
+  assert.match(app, /Subscribed while open/);
   assert.doesNotMatch(app, /subscribeToRoom\(\);\s*subscribeToEvents\(\);/);
 });
 
 test('shared actions use intent deduplication and compact backwards-compatible undo', () => {
   assert.match(app, /recentActionIds: RoomData\.appendActionId/);
-  assert.match(app, /stableActionId\(type, options\.dedupeKey\)/);
+  assert.match(app, /var actionId = eventRef\.id/);
+  assert.match(app, /var inFlightKey = type \+ '\\|' /);
+  assert.doesNotMatch(app, /function stableActionId/);
   assert.match(app, /eventData\.undoPatch = RoomData\.createUndoPatch/);
   assert.match(app, /RoomData\.applyUndoPatch\(currentState, target\.undoPatch\)/);
   assert.match(app, /target\.beforeState/);
@@ -253,5 +259,54 @@ test('display preferences, fullscreen courts, rules, and announcements are avail
 test('the compatibility data layer loads before the application', () => {
   assert.ok(html.indexOf('./room-data.js') < html.indexOf('./app.js'));
   assert.match(serviceWorker, /room-data\.js/);
+  assert.match(serviceWorker, /live-sync\.js/);
   assert.match(hostingBuild, /room-data\.js/);
+  assert.match(hostingBuild, /live-sync\.js/);
+});
+
+test('task-focused tabs follow the ARIA tab pattern and default to Game', () => {
+  for (const tab of ['game', 'players', 'results', 'activity', 'session']) {
+    assert.match(html, new RegExp(`id="tab-${tab}"[^>]*role="tab"[^>]*aria-controls="panel-${tab}"`));
+    assert.match(html, new RegExp(`id="panel-${tab}"[^>]*role="tabpanel"[^>]*aria-labelledby="tab-${tab}"`));
+  }
+  assert.match(app, /function initAppTabs/);
+  assert.match(app, /selectAppTab\('game'\)/);
+  assert.match(app, /ArrowLeft/);
+  assert.match(app, /ArrowRight/);
+  assert.match(app, /event\.key === 'Home'/);
+  assert.match(app, /event\.key === 'End'/);
+  assert.match(html, /@media \(max-width:\s*620px\)[\s\S]*\.app-tabs\s*\{[^}]*position:\s*fixed/);
+  assert.match(html, /env\(safe-area-inset-bottom\)/);
+});
+
+test('app-owned dialogs replace browser confirms and preserve accessible focus behavior', () => {
+  assert.doesNotMatch(app, /\bconfirm\(/);
+  assert.match(app, /function confirmAction/);
+  assert.match(app, /function handleModalKeydown/);
+  assert.match(app, /document\.querySelector\('\.container'\)\.inert = true/);
+  assert.match(app, /returnFocus\.focus/);
+  assert.match(app, /aria-busy/);
+  assert.match(html, /id="appModal" role="dialog" aria-modal="true"/);
+});
+
+test('self-healing live sync requires server confirmation and exposes recovery UI', () => {
+  assert.ok(html.indexOf('./live-sync.js') < html.indexOf('./app.js'));
+  assert.match(app, /LiveSync\.createCoordinator/);
+  assert.match(app, /source: 'server'/);
+  assert.match(app, /roomSync\.awaitRevision/);
+  assert.match(app, /visibilitychange/);
+  assert.match(app, /pageshow/);
+  assert.match(app, /Retry Now/);
+  assert.match(html, /id="syncRecoveryBar"/);
+  assert.match(html, /id="syncRetryBtn"/);
+  assert.doesNotMatch(app, /online \? .*connected/);
+});
+
+test('design context and UX contract are release artifacts', () => {
+  for (const file of ['DESIGN.md', 'UX-CONTRACT.md', 'premium-ui.json']) {
+    assert.equal(fs.existsSync(path.join(__dirname, '..', file)), true, `${file} should exist`);
+  }
+  assert.doesNotMatch(html, /id="legacyApp"/);
+  assert.match(html, /id="playerSearchClear"/);
+  assert.match(html, /id="standingsSearchClear"/);
 });

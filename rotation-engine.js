@@ -363,6 +363,31 @@
     });
   }
 
+  function preparationBreakdown(state, courtIndex, skillGroup) {
+    var court = state.courtStates[courtIndex];
+    skillGroup = normalizeSkillGroup(skillGroup == null && court ? court.skillGroup : skillGroup);
+    var active = new Set(activeIds(state));
+    var next = new Set(nextIds(state));
+    var counts = {
+      total: state.players.length,
+      available: 0,
+      onCourt: 0,
+      upNext: 0,
+      takingBreak: 0,
+      unconfirmed: 0,
+      skillMismatch: 0
+    };
+    state.players.forEach(function (player) {
+      if (player.notAvailable) counts.takingBreak += 1;
+      else if (active.has(player.id)) counts.onCourt += 1;
+      else if (next.has(player.id)) counts.upNext += 1;
+      else if (skillGroup !== 'any' && !player.skillLevelConfirmed) counts.unconfirmed += 1;
+      else if (!playerMatchesSkillGroup(player, skillGroup)) counts.skillMismatch += 1;
+      else counts.available += 1;
+    });
+    return counts;
+  }
+
   function courtFillOrder(state) {
     return state.courtStates.map(function (_, index) { return index; }).sort(function (a, b) {
       var aAny = normalizeSkillGroup(state.courtStates[a].skillGroup) === 'any';
@@ -682,22 +707,67 @@
     };
   }
 
+  function deterministicFallbackAssignment(state, ids) {
+    var selected = ids.map(function (id) { return playerById(state, id); }).filter(Boolean).sort(function (a, b) {
+      return a.games - b.games
+        || a.lastAssignedRound - b.lastAssignedRound
+        || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    }).slice(0, 4).map(function (player) { return player.id; });
+    if (selected.length < 4) return null;
+    var best = null;
+    partitions(selected).forEach(function (partition) {
+      var teamASkill = partition[0].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
+      var teamBSkill = partition[1].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
+      var teammateRepeats = (state.teammateCounts[pairKey(partition[0][0], partition[0][1])] || 0)
+        + (state.teammateCounts[pairKey(partition[1][0], partition[1][1])] || 0);
+      var opponentRepeats = 0;
+      partition[0].forEach(function (a) {
+        partition[1].forEach(function (b) { opponentRepeats += state.opponentCounts[pairKey(a, b)] || 0; });
+      });
+      var score = [state.matchmakingMode === 'balanced' ? Math.abs(teamASkill - teamBSkill) : 0, teammateRepeats, opponentRepeats];
+      if (!best || compareTuple(score, best.score) < 0) {
+        best = { teamA: partition[0], teamB: partition[1], score: score, fallback: true };
+      }
+    });
+    return best;
+  }
+
   function prepareNextGame(state, courtIndex, randomFn, now) {
     var court = state.courtStates[courtIndex];
-    if (!court) return { changed: false, reason: 'Court not found.' };
-    if (court.nextGame) return { changed: false, reason: courtDisplayName(court) + ' already has an Up Next lineup.' };
+    if (!court) return { changed: false, reasonCode: 'court_not_found', reason: 'Court not found.' };
+    if (court.nextGame) return {
+      changed: false,
+      reasonCode: 'already_prepared',
+      reason: courtDisplayName(court) + ' already has an Up Next lineup.'
+    };
     var skillGroup = court.skillGroup;
+    var breakdown = preparationBreakdown(state, courtIndex, skillGroup);
     var available = availableIds(state).filter(function (id) {
       return playerMatchesSkillGroup(playerById(state, id), skillGroup);
     });
     if (available.length < 4) {
-      return { changed: false, reason: courtDisplayName(court) + ' needs 4 available ' + skillGroupLabel(skillGroup)
-        + ' players; only ' + available.length + ' eligible.' };
+      return {
+        changed: false,
+        reasonCode: 'insufficient_eligible',
+        requiredCount: 4,
+        eligibleCount: available.length,
+        breakdown: breakdown,
+        reason: courtDisplayName(court) + ' needs 4 available ' + skillGroupLabel(skillGroup)
+          + ' players; only ' + available.length + ' eligible.'
+      };
     }
     var assignment = chooseAssignment(state, available, randomFn);
-    if (!assignment) return { changed: false, reason: 'Could not build a fair game.' };
+    if (!assignment) assignment = deterministicFallbackAssignment(state, available);
+    if (!assignment) return {
+      changed: false,
+      reasonCode: 'assignment_failed',
+      requiredCount: 4,
+      eligibleCount: available.length,
+      breakdown: breakdown,
+      reason: 'Could not build a fair game from the eligible players.'
+    };
     setNextLineup(court, assignment.teamA, assignment.teamB, 'auto', now, skillGroup);
-    return { changed: true, court: court, nextGame: court.nextGame };
+    return { changed: true, court: court, nextGame: court.nextGame, usedFallback: !!assignment.fallback };
   }
 
   function prepareManualNextGame(state, courtIndex, teamA, teamB, now) {
@@ -781,6 +851,17 @@
     map[key] = (map[key] || 0) + 1;
   }
 
+  function promotePreparedCourt(court) {
+    if (!court || !court.nextGame) return;
+    court.status = 'empty';
+    court.teamA = [];
+    court.teamB = [];
+    court.winner = null;
+    court.assignmentRound = 0;
+    court.previousLastAssigned = {};
+    court.startedAt = null;
+  }
+
   function recordWinner(state, courtIndex, winner, now) {
     var court = state.courtStates[courtIndex];
     if (!court || court.status !== 'playing' || (winner !== 'A' && winner !== 'B')) return { changed: false };
@@ -812,16 +893,28 @@
     court.activeTimeLimitMinutes = null;
     court.deadlineAt = null;
     state.history = state.history.slice(0, 100);
-    if (court.nextGame) {
-      court.status = 'empty';
-      court.teamA = [];
-      court.teamB = [];
-      court.winner = null;
-      court.assignmentRound = 0;
-      court.previousLastAssigned = {};
-      court.startedAt = null;
-    }
+    if (court.nextGame) promotePreparedCourt(court);
     return { changed: true, winners: winners.slice(), court: court, historyEntry: historyEntry };
+  }
+
+  function recordWinnerAndPrepareNext(state, courtIndex, winner, randomFn, now) {
+    var court = state.courtStates[courtIndex];
+    var hadPreparedGame = !!(court && court.nextGame);
+    var completed = recordWinner(state, courtIndex, winner, now);
+    if (!completed.changed) return completed;
+    if (hadPreparedGame) {
+      completed.promotedPreparedGame = true;
+      completed.nextGame = completed.court.nextGame;
+      return completed;
+    }
+    var preparation = prepareNextGame(state, courtIndex, randomFn, now);
+    completed.autoPreparation = preparation;
+    if (preparation.changed) {
+      promotePreparedCourt(completed.court);
+      completed.autoPreparedNext = true;
+      completed.nextGame = completed.court.nextGame;
+    }
+    return completed;
   }
 
   function replacePlayer(state, courtIndex, team, playerIndex, replacementId) {
@@ -911,6 +1004,7 @@
     lockedIds: lockedIds,
     availableIds: availableIds,
     eligibleIdsForCourt: eligibleIdsForCourt,
+    preparationBreakdown: preparationBreakdown,
     eligibleIdsForManualCourt: eligibleIdsForManualCourt,
     courtFillOrder: courtFillOrder,
     courtPreparationOrder: courtPreparationOrder,
@@ -934,6 +1028,7 @@
     clearStagedGame: clearStagedGame,
     assignGame: assignGame,
     recordWinner: recordWinner,
+    recordWinnerAndPrepareNext: recordWinnerAndPrepareNext,
     replacePlayer: replacePlayer,
     fairReplacement: fairReplacement,
     resetCourts: resetCourts,
