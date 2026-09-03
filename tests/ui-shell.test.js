@@ -92,7 +92,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v30-fixed-partners/);
+  assert.match(serviceWorker, /pickleball-v31-raised-tabs/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -277,6 +277,19 @@ test('task-focused tabs follow the ARIA tab pattern and default to Game', () => 
   assert.match(app, /event\.key === 'End'/);
   assert.match(html, /@media \(max-width:\s*620px\)[\s\S]*\.app-tabs\s*\{[^}]*position:\s*fixed/);
   assert.match(html, /env\(safe-area-inset-bottom\)/);
+});
+
+test('navigation uses one raised-button recipe with accessible interaction states', () => {
+  assert.match(html, /--tab-surface:\s*var\(--card2\)/);
+  assert.match(html, /\.app-tab\s*\{[^}]*grid-template-columns:\s*auto auto/);
+  assert.match(html, /\.app-tab\s*\{[^}]*background:\s*var\(--tab-surface\)/);
+  assert.match(html, /\.app-tab\s*\{[^}]*color:\s*var\(--text\)/);
+  assert.match(html, /box-shadow:\s*0 3px 0 var\(--tab-edge\)/);
+  assert.match(html, /\.app-tab:active:not\(:disabled\)\s*\{[^}]*translateY\(2px\)/);
+  assert.match(html, /\.app-tab:disabled\s*\{[^}]*box-shadow:\s*none/);
+  assert.match(html, /@media \(forced-colors: active\)[\s\S]*\.app-tab.is-selected/);
+  assert.match(html, /\.app-tab:focus-visible/);
+  assert.match(html, /prefers-reduced-motion:\s*reduce/);
 });
 
 test('app-owned dialogs replace browser confirms and preserve accessible focus behavior', () => {
