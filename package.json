@@ -1,9 +1,9 @@
 {
   "name": "pickleball-live-rotation",
-  "version": "3.12.0",
+  "version": "3.13.0",
   "private": true,
   "scripts": {
-    "test": "node --test tests/rotation-engine.test.js tests/room-data.test.js tests/live-sync.test.js tests/ui-shell.test.js",
+    "test": "node --test tests/rotation-engine.test.js tests/partners.test.js tests/room-data.test.js tests/live-sync.test.js tests/ui-shell.test.js",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.js\"",
     "test:all": "npm test && npm run test:rules"
   },

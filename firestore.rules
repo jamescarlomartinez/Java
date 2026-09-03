@@ -80,6 +80,10 @@ service cloud.firestore {
         && request.resource.data.organizerGrantId == resource.data.organizerGrantId
         && request.resource.data.schemaVersion == resource.data.schemaVersion
         && request.resource.data.createdAt == resource.data.createdAt
+        && (!resource.data.state.keys().hasAny(['schemaVersion'])
+          || resource.data.state.schemaVersion < 11
+          || (request.resource.data.state.keys().hasAny(['schemaVersion'])
+            && request.resource.data.state.schemaVersion >= resource.data.state.schemaVersion))
         && (
           request.auth.uid == resource.data.hostUid
           || (
@@ -131,7 +135,7 @@ service cloud.firestore {
         ])
         && request.resource.data.keys().hasOnly([
           'roomId', 'revision', 'type', 'summary', 'actorUid', 'actorName',
-          'beforeState', 'undoPatch', 'actionId', 'createdAt', 'expiresAt'
+          'beforeState', 'undoPatch', 'actionId', 'partnershipRevision', 'createdAt', 'expiresAt'
         ])
         && request.resource.data.roomId is string
         && request.resource.data.actorUid == request.auth.uid
@@ -141,6 +145,8 @@ service cloud.firestore {
         && request.resource.data.type is string && request.resource.data.type.size() <= 40
         && request.resource.data.summary is string && request.resource.data.summary.size() <= 300
         && request.resource.data.revision is int
+        && (!request.resource.data.keys().hasAny(['partnershipRevision'])
+          || (request.resource.data.partnershipRevision is int && request.resource.data.partnershipRevision >= 0))
         && (!request.resource.data.keys().hasAny(['actionId'])
           || (request.resource.data.actionId is string && request.resource.data.actionId.size() <= 120))
         && (!request.resource.data.keys().hasAny(['undoPatch']) || request.resource.data.undoPatch is list)
