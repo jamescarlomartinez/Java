@@ -16,6 +16,10 @@ The canonical application structure is Game, Players, Results, Activity, and Ses
 
 Activity is hidden in solo mode. Shared roles keep the same tab vocabulary while permission-specific operations are hidden. Global announcements, connectivity recovery, and turn alerts remain outside the tab panels.
 
+Navigation uses the approved raised-button style: distinct dark-green surfaces, visible green borders, bright labels, and a subtle three-pixel lower edge. Selected tabs are mint with dark text. Icons sit immediately beside labels on desktop and above labels on phones. Pressing lowers the face two pixels without changing layout; keyboard focus remains a separate outline. Reduced-motion and forced-color preferences remain supported.
+
+The shared `.app-tab` recipe in `index.html` owns every role's navigation appearance. Its canonical runtime tokens are `--tab-surface` (alias of `--card2`), `--tab-edge` (alias of `--bg`), `--tab-selected-edge` (alias of `--primary-dark`), and `--tab-radius` (10px). Theme overrides flow through these aliases; other controls retain their existing styles.
+
 ## Component ownership
 
 - The compact session card owns room name, access role, linked player identity, and sync status.
