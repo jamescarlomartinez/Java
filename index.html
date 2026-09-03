@@ -706,7 +706,14 @@
     #signOutWrap { grid-column: 3; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
     .btn-signout { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; padding: 0; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18); color: rgba(255,255,255,.45); border-radius: 8px; cursor: pointer; transition: all .15s; }
     .btn-signout:active { background: rgba(255,255,255,.16); color: rgba(255,255,255,.8); }
-  </style>
+.partner-status { display: block; color: var(--text-muted); font-size: .78rem; white-space: normal; overflow-wrap: anywhere; margin: 6px 0; }
+.partner-request { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.partner-request strong { flex: 1 1 100%; overflow-wrap: anywhere; }
+#partnershipSection .card-title { flex-wrap: wrap; gap: 8px; }
+#partnerOptions { margin-top: 12px; }
+#partnerOptions .picker-option { overflow-wrap: anywhere; white-space: normal; min-height: 44px; }
+.player-name > .btn { display: block; margin-top: 6px; min-height: 44px; }
+</style>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -804,6 +811,7 @@
     <section class="app-tab-panel" id="panel-players" role="tabpanel" aria-labelledby="tab-players" data-tab-panel="players" hidden>
 
   <div id="playerToolsSection"></div>
+  <div id="partnershipSection"></div>
 
   <!-- Player Management -->
   <div class="card" id="playerCard">

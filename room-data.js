@@ -103,6 +103,21 @@
     return restored;
   }
 
+  function restoreUndoState(currentState, target, engine) {
+    if ((target.partnershipRevision || 0) !== (currentState.partnershipRevision || 0)) {
+      throw new Error('Partnerships changed after this action. Undo cannot override a later partnership decision.');
+    }
+    var restored = Array.isArray(target.undoPatch)
+      ? engine.normalizeState(applyUndoPatch(currentState, target.undoPatch))
+      : engine.normalizeState(target.beforeState);
+    var check = engine.validatePartnerState(restored);
+    if (!check.valid) throw new Error('Undo would split a fixed partnership. ' + check.reason);
+    if ((restored.partnershipRevision || 0) !== (currentState.partnershipRevision || 0)) {
+      restored.partnershipRevision = (currentState.partnershipRevision || 0) + 1;
+    }
+    return restored;
+  }
+
   function roomCreateFields(state) {
     return {
       dataLayoutVersion: LAYOUT_VERSION,
@@ -120,6 +135,7 @@
     appendActionId: appendActionId,
     createUndoPatch: createUndoPatch,
     applyUndoPatch: applyUndoPatch,
+    restoreUndoState: restoreUndoState,
     roomCreateFields: roomCreateFields
   };
 });

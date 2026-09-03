@@ -5,7 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  var SCHEMA_VERSION = 10;
+  var SCHEMA_VERSION = 11;
   var SKILL_LEVELS = [
     { value: 1, key: 'beginner', label: 'Beginner', description: 'Learning rules and building consistency.' },
     { value: 2, key: 'intermediate_plus', label: 'Non-Beginner', description: 'Consistent rallies, positioning, and strategy through advanced play.' }
@@ -108,7 +108,10 @@
       sessionAnnouncement: '',
       sessionRules: '',
       teammateCounts: {},
-      opponentCounts: {}
+      opponentCounts: {},
+      partnerships: [],
+      partnerRequests: [],
+      partnershipRevision: 0
     };
     initCourtStates(state, count);
     return state;
@@ -228,6 +231,7 @@
   }
 
   function normalizeState(value) {
+    if (value && Number(value.schemaVersion) > SCHEMA_VERSION) throw new Error('Update App to use this newer game format.');
     var state = clone(value || {});
     var sourceSchemaVersion = Math.max(0, Number(state.schemaVersion) || 0);
     state.schemaVersion = SCHEMA_VERSION;
@@ -325,7 +329,108 @@
       }
       nextLineup.forEach(function (id) { reserved.add(id); });
     });
+    normalizePartnerships(state);
     return state;
+  }
+
+  function normalizePartnerships(state) {
+    var used = new Set();
+    ['partnerships', 'partnerRequests'].forEach(function (field) {
+      state[field] = (Array.isArray(state[field]) ? state[field] : []).filter(function (pair) {
+        if (!pair || !Array.isArray(pair.playerIds) || pair.playerIds.length !== 2) return false;
+        var ids = pair.playerIds;
+        if (ids[0] === ids[1] || ids.some(function (id) { return used.has(id) || !playerById(state, id); })) return false;
+        ids.forEach(function (id) { used.add(id); });
+        return true;
+      });
+    });
+    state.partnershipRevision = Math.max(0, Number(state.partnershipRevision) || 0);
+  }
+
+  function partnerRecord(state, id, pending) {
+    return (state[pending ? 'partnerRequests' : 'partnerships'] || []).find(function (pair) {
+      return pair.playerIds.indexOf(id) !== -1;
+    }) || null;
+  }
+
+  function partnerId(state, id) {
+    var pair = partnerRecord(state, id);
+    return pair ? pair.playerIds.find(function (other) { return other !== id; }) : null;
+  }
+
+  function partnerAction(state, action, a, b, actor, now) {
+    actor = actor || {};
+    var player = playerById(state, a);
+    if (!player || (!actor.isController && (!actor.uid || actor.playerId !== a || player.checkedInUid !== actor.uid))) {
+      return { changed: false, reason: 'You can only manage your own partnership.' };
+    }
+    normalizePartnerships(state);
+    var pending = partnerRecord(state, a, true);
+    var pair = partnerRecord(state, a);
+    if (action === 'cancel' || action === 'decline' || action === 'end') {
+      if (action === 'decline' && !actor.isController) return { changed: false, reason: 'Controller approval required.' };
+      var record = action === 'end' ? pair : pending;
+      if (!record || (b && record.id !== b)) return { changed: false, reason: 'This partnership or request has already changed.' };
+      if (action === 'end' && record.playerIds.some(function (id) { return lockedIds(state).indexOf(id) !== -1; })) {
+        return { changed: false, reason: 'Both partners must be off court and not Up Next before ending the partnership.' };
+      }
+      var field = action === 'end' ? 'partnerships' : 'partnerRequests';
+      state[field] = state[field].filter(function (item) { return item.id !== record.id; });
+      state.partnershipRevision += 1;
+      return { changed: true, pair: record };
+    }
+    if (['request', 'approve', 'create'].indexOf(action) === -1) return { changed: false, reason: 'Unknown partnership action.' };
+    if (action !== 'request' && !actor.isController) return { changed: false, reason: 'Controller approval required.' };
+    if (action === 'approve') {
+      if (!pending || pending.id !== b) return { changed: false, reason: 'This request has already changed.' };
+      b = pending.playerIds.find(function (id) { return id !== a; });
+    }
+    if (a === b || !playerById(state, b)) return { changed: false, reason: 'Choose a different roster player.' };
+    if (pair || partnerRecord(state, b) || (action !== 'approve' && (pending || partnerRecord(state, b, true)))) {
+      return { changed: false, reason: 'A player already has a partner or pending request. End or cancel it first.' };
+    }
+    if (action !== 'request' && [a, b].some(function (id) { return lockedIds(state).indexOf(id) !== -1; })) {
+      return { changed: false, reason: 'Both players must be off court and not Up Next before approval.' };
+    }
+    var entry = { id: makeId('pair'), playerIds: [a, b], createdAt: Number(now) || Date.now() };
+    if (action === 'request') state.partnerRequests.push(entry);
+    else {
+      state.partnerships.push(entry);
+      if (pending) state.partnerRequests = state.partnerRequests.filter(function (item) { return item.id !== pending.id; });
+    }
+    state.partnershipRevision += 1;
+    return { changed: true, pair: entry };
+  }
+
+  function validatePartnerLineup(state, teamA, teamB) {
+    var teams = [teamA, teamB];
+    for (var i = 0; i < teams.length; i += 1) {
+      for (var j = 0; j < teams[i].length; j += 1) {
+        var id = teams[i][j], partner = partnerId(state, id);
+        if (partner && teams[i].indexOf(partner) === -1) return {
+          valid: false, reason: playerName(state, id) + ' must play on the same team as ' + playerName(state, partner) + '.'
+        };
+      }
+    }
+    return { valid: true };
+  }
+
+  function validatePartnerState(state) {
+    for (var i = 0; i < state.courtStates.length; i += 1) {
+      var court = state.courtStates[i];
+      var lineups = court.status === 'playing' ? [court] : [];
+      if (court.nextGame) lineups.push(court.nextGame);
+      for (var j = 0; j < lineups.length; j += 1) {
+        var check = validatePartnerLineup(state, lineups[j].teamA, lineups[j].teamB);
+        if (!check.valid) return check;
+      }
+    }
+    return { valid: true };
+  }
+
+  function keepCompletePairs(state, ids) {
+    var pool = new Set(ids);
+    return ids.filter(function (id) { var partner = partnerId(state, id); return !partner || pool.has(partner); });
   }
 
   function activeIds(state) {
@@ -350,17 +455,17 @@
 
   function availableIds(state) {
     var locked = new Set(lockedIds(state));
-    return state.players.filter(function (player) {
+    return keepCompletePairs(state, state.players.filter(function (player) {
       return !locked.has(player.id) && !player.notAvailable;
-    }).map(function (player) { return player.id; });
+    }).map(function (player) { return player.id; }));
   }
 
   function eligibleIdsForCourt(state, courtIndex) {
     var court = state.courtStates[courtIndex];
     if (!court) return [];
-    return availableIds(state).filter(function (id) {
+    return keepCompletePairs(state, availableIds(state).filter(function (id) {
       return playerMatchesSkillGroup(playerById(state, id), court.skillGroup);
-    });
+    }));
   }
 
   function preparationBreakdown(state, courtIndex, skillGroup) {
@@ -375,7 +480,10 @@
       upNext: 0,
       takingBreak: 0,
       unconfirmed: 0,
-      skillMismatch: 0
+      skillMismatch: 0,
+      partnerUnavailable: 0,
+      partnerReserved: 0,
+      partnerSkillMismatch: 0
     };
     state.players.forEach(function (player) {
       if (player.notAvailable) counts.takingBreak += 1;
@@ -383,7 +491,13 @@
       else if (next.has(player.id)) counts.upNext += 1;
       else if (skillGroup !== 'any' && !player.skillLevelConfirmed) counts.unconfirmed += 1;
       else if (!playerMatchesSkillGroup(player, skillGroup)) counts.skillMismatch += 1;
-      else counts.available += 1;
+      else {
+        var partner = playerById(state, partnerId(state, player.id));
+        if (partner && partner.notAvailable) counts.partnerUnavailable += 1;
+        else if (partner && (active.has(partner.id) || next.has(partner.id))) counts.partnerReserved += 1;
+        else if (partner && !playerMatchesSkillGroup(partner, skillGroup)) counts.partnerSkillMismatch += 1;
+        else counts.available += 1;
+      }
     });
     return counts;
   }
@@ -619,17 +733,26 @@
   function chooseAssignment(state, ids, randomFn) {
     randomFn = randomFn || Math.random;
     if (ids.length < 4) return null;
-    var players = ids.map(function (id) { return playerById(state, id); }).filter(Boolean);
+    var players = keepCompletePairs(state, ids).map(function (id) { return playerById(state, id); }).filter(Boolean);
     players.sort(function (a, b) {
       return a.games - b.games || a.lastAssignedRound - b.lastAssignedRound || a.name.localeCompare(b.name);
     });
-    var pool = players.slice(0, Math.min(12, players.length));
+    var pool = [], selectedIds = new Set();
+    // Add complete scheduling units; a low-count player's partner may be beyond the cutoff.
+    players.forEach(function (player) {
+      if (selectedIds.has(player.id) || pool.length >= 12) return;
+      var partner = playerById(state, partnerId(state, player.id));
+      if (pool.length + (partner ? 2 : 1) > 12) return;
+      pool.push(player); selectedIds.add(player.id);
+      if (partner) { pool.push(partner); selectedIds.add(partner.id); }
+    });
     var allPlayers = state.players.filter(function (player) { return !player.notAvailable; });
     var candidates = combinations(pool.map(function (player) { return player.id; }), 4);
     var best = null;
 
     candidates.forEach(function (group) {
       partitions(group).forEach(function (partition) {
+        if (!validatePartnerLineup(state, partition[0], partition[1]).valid) return;
         var selected = new Set(group);
         var projected = allPlayers.map(function (player) { return player.games + (selected.has(player.id) ? 1 : 0); });
         var spread = projected.length ? Math.max.apply(Math, projected) - Math.min.apply(Math, projected) : 0;
@@ -646,8 +769,8 @@
         var teamBSkill = partition[1].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
         var skillGap = state.matchmakingMode === 'balanced' ? Math.abs(teamASkill - teamBSkill) : 0;
         var teammatePairCounts = [
-          state.teammateCounts[pairKey(partition[0][0], partition[0][1])] || 0,
-          state.teammateCounts[pairKey(partition[1][0], partition[1][1])] || 0
+          partnerId(state, partition[0][0]) === partition[0][1] ? 0 : state.teammateCounts[pairKey(partition[0][0], partition[0][1])] || 0,
+          partnerId(state, partition[1][0]) === partition[1][1] ? 0 : state.teammateCounts[pairKey(partition[1][0], partition[1][1])] || 0
         ];
         var teammateRepeatedPairs = teammatePairCounts.filter(function (count) { return count > 0; }).length;
         var teammateMax = Math.max.apply(null, teammatePairCounts);
@@ -691,9 +814,9 @@
     var locked = new Set(lockedIds(state));
     currentLineup.forEach(function (id) { locked.delete(id); });
     var skillGroup = court.nextGame ? court.nextGame.skillGroup : court.skillGroup;
-    return state.players.filter(function (player) {
+    return keepCompletePairs(state, state.players.filter(function (player) {
       return !locked.has(player.id) && !player.notAvailable && playerMatchesSkillGroup(player, skillGroup);
-    }).map(function (player) { return player.id; });
+    }).map(function (player) { return player.id; }));
   }
 
   function setNextLineup(court, teamA, teamB, source, now, skillGroup) {
@@ -708,6 +831,11 @@
   }
 
   function deterministicFallbackAssignment(state, ids) {
+    if ((state.partnerships || []).length) {
+      var paired = chooseAssignment(state, ids, function () { return 0; });
+      if (paired) paired.fallback = true;
+      return paired;
+    }
     var selected = ids.map(function (id) { return playerById(state, id); }).filter(Boolean).sort(function (a, b) {
       return a.games - b.games
         || a.lastAssignedRound - b.lastAssignedRound
@@ -742,9 +870,7 @@
     };
     var skillGroup = court.skillGroup;
     var breakdown = preparationBreakdown(state, courtIndex, skillGroup);
-    var available = availableIds(state).filter(function (id) {
-      return playerMatchesSkillGroup(playerById(state, id), skillGroup);
-    });
+    var available = eligibleIdsForCourt(state, courtIndex);
     if (available.length < 4) {
       return {
         changed: false,
@@ -754,6 +880,9 @@
         breakdown: breakdown,
         reason: courtDisplayName(court) + ' needs 4 available ' + skillGroupLabel(skillGroup)
           + ' players; only ' + available.length + ' eligible.'
+          + (breakdown.partnerUnavailable ? ' ' + breakdown.partnerUnavailable + ' waiting for an unavailable partner.' : '')
+          + (breakdown.partnerReserved ? ' ' + breakdown.partnerReserved + ' waiting for a reserved partner.' : '')
+          + (breakdown.partnerSkillMismatch ? ' ' + breakdown.partnerSkillMismatch + ' have a partner ineligible for this court.' : '')
       };
     }
     var assignment = chooseAssignment(state, available, randomFn);
@@ -779,6 +908,8 @@
     if (teamA.length !== 2 || teamB.length !== 2 || new Set(lineup).size !== 4) {
       return { changed: false, reason: 'Choose four different players.' };
     }
+    var pairCheck = validatePartnerLineup(state, teamA, teamB);
+    if (!pairCheck.valid) return { changed: false, reason: pairCheck.reason };
     var eligible = new Set(eligibleIdsForManualCourt(state, courtIndex));
     if (!lineup.every(function (id) { return eligible.has(id); })) {
       return { changed: false, reason: 'Every player must be available and eligible for this court.' };
@@ -793,6 +924,12 @@
     if (!court || !court.nextGame) return { changed: false, reason: 'Prepare a complete Up Next lineup first.' };
     if (court.status === 'playing') return { changed: false, reason: 'Record the current winner before starting the next game.' };
     var next = court.nextGame;
+    var pairCheck = validatePartnerLineup(state, next.teamA, next.teamB);
+    if (!pairCheck.valid) return { changed: false, reason: pairCheck.reason };
+    var eligible = new Set(eligibleIdsForManualCourt(state, courtIndex));
+    if (!next.teamA.concat(next.teamB).every(function (id) { return eligible.has(id); })) {
+      return { changed: false, reason: 'A prepared player or partner is no longer eligible. Edit the lineup first.' };
+    }
     state.rotationRound += 1;
     court.status = 'playing';
     court.gameNum = next.gameNum;
@@ -928,6 +1065,9 @@
     var outgoing = playerById(state, outgoingId);
     var incoming = playerById(state, replacementId);
     if (!outgoing || !incoming) return { changed: false, reason: 'Player could not be found.' };
+    if (partnerId(state, outgoingId) || partnerId(state, replacementId)) {
+      return { changed: false, reason: 'A single-player replacement cannot split a fixed partnership.' };
+    }
     target[playerIndex] = replacementId;
     outgoing.games = Math.max(0, outgoing.games - 1);
     outgoing.lastAssignedRound = Object.prototype.hasOwnProperty.call(court.previousLastAssigned, outgoingId)
@@ -940,7 +1080,7 @@
   }
 
   function fairReplacement(state, courtIndex) {
-    var ids = eligibleIdsForCourt(state, courtIndex);
+    var ids = eligibleIdsForCourt(state, courtIndex).filter(function (id) { return !partnerId(state, id); });
     ids.sort(function (a, b) {
       var pa = playerById(state, a), pb = playerById(state, b);
       return pa.games - pb.games || pa.lastAssignedRound - pb.lastAssignedRound || pa.name.localeCompare(pb.name);
@@ -990,6 +1130,13 @@
     initCourtStates: initCourtStates,
     playerById: playerById,
     playerName: playerName,
+    partnerId: partnerId,
+    partnerRecord: partnerRecord,
+    partnerAction: partnerAction,
+    normalizePartnerships: normalizePartnerships,
+    validatePartnerLineup: validatePartnerLineup,
+    validatePartnerState: validatePartnerState,
+    deterministicFallbackAssignment: deterministicFallbackAssignment,
     skillLevelByValue: skillLevelByValue,
     skillLevelLabel: skillLevelLabel,
     normalizeSkillLevel: normalizeSkillLevel,

@@ -460,3 +460,66 @@ test('controller and viewer listeners receive committed room revisions without r
 test('test harness is intentionally skipped without the Firestore emulator', { skip: emulatorAvailable }, () => {
   assert.equal(emulatorAvailable, false);
 });
+
+test('schema 11 rooms reject older writers including organizer downgrades', { skip: !emulatorAvailable }, async () => {
+  const E = require('../rotation-engine.js');
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'rooms/room-schema11'), room({ state: E.createState(1) }));
+  });
+  for (const uid of ['host-1', 'guest-1']) {
+    const ref = doc(env.authenticatedContext(uid).firestore(), 'rooms/room-schema11');
+    await assertFails(updateDoc(ref, { state: { schemaVersion: 10, players: [] } }));
+    await assertFails(updateDoc(ref, { state: { players: [] } }));
+    await assertSucceeds(updateDoc(ref, { state: E.createState(1) }));
+  }
+});
+
+test('concurrent partner approvals remain atomic and live listeners receive the final pairing', { skip: !emulatorAvailable }, async () => {
+  const E = require('../rotation-engine.js');
+  const state = E.createState(1);
+  for (let i = 0; i < 4; i++) E.enrollPlayer(state, 'Player ' + i, 'uid' + i, 'Player ' + i, 'p' + i, 1);
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'rooms/room-partners'), room({ state }));
+    for (const uid of ['partner-controller-a', 'partner-controller-b']) {
+      await setDoc(doc(db, 'roomMembers/room-partners_' + uid), {
+        roomId: 'room-partners', uid, displayName: uid, role: 'controller', playerId: null,
+        joinedAt: Timestamp.now(), expiresAt: Timestamp.now()
+      });
+    }
+  });
+  const viewer = env.authenticatedContext('partner-viewer').firestore();
+  let unsubscribe;
+  const observed = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => { if (unsubscribe) unsubscribe(); reject(new Error('Pairing did not synchronize.')); }, 8000);
+    unsubscribe = onSnapshot(doc(viewer, 'rooms/room-partners'), snapshot => {
+      if (snapshot.exists() && snapshot.data().revision === 1) { clearTimeout(timeout); resolve(snapshot.data()); }
+    }, reject);
+  });
+  async function approve(uid, target) {
+    const db = env.authenticatedContext(uid).firestore();
+    const ref = doc(db, 'rooms/room-partners');
+    const eventRef = doc(collection(db, 'roomEvents'));
+    return runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(ref);
+      const data = snapshot.data();
+      const next = E.normalizeState(data.state);
+      const result = E.partnerAction(next, 'create', 'p0', target, { isController: true, uid });
+      if (!result.changed) return false;
+      transaction.update(ref, { state: next, revision: data.revision + 1, lastEventId: eventRef.id, updatedAt: serverTimestamp() });
+      transaction.set(eventRef, {
+        roomId: 'room-partners', revision: data.revision + 1, type: 'partner_create', summary: 'Set partners',
+        actorUid: uid, actorName: uid, partnershipRevision: next.partnershipRevision,
+        createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000)
+      });
+      return true;
+    });
+  }
+  const results = await Promise.all([approve('partner-controller-a', 'p1'), approve('partner-controller-b', 'p2')]);
+  assert.equal(results.filter(Boolean).length, 1);
+  const received = await observed; unsubscribe();
+  assert.equal(received.state.partnerships.length, 1);
+  const final = (await getDoc(doc(viewer, 'rooms/room-partners'))).data();
+  assert.equal(final.revision, 1);
+  assert.deepEqual(final.state.partnerships, received.state.partnerships);
+});

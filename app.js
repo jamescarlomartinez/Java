@@ -3,7 +3,7 @@
 var Engine = window.PickleballRotation;
 var RoomData = window.PickleballRoomData;
 var LiveSync = window.PickleballLiveSync;
-var APP_VERSION = '3.12.0';
+var APP_VERSION = '3.13.0';
 var VERSION_URL = './version.json';
 var LOCAL_KEY = 'pickleballRotation_v3';
 var LEGACY_KEY = 'pickleballRotation_v2';
@@ -65,11 +65,12 @@ var toastTimer = null;
 var deferredPrompt = null;
 var organizerGrantId = null;
 var appUpdateInProgress = false;
+var incompatibleGameVersion = false;
 var appServiceWorkerRegistration = null;
 var alertStatus = 'checking';
 var initialRoomSnapshotSeen = false;
 var lastTurnAlertKey = '';
-var ROLE_HELP_VERSION = 'v10';
+var ROLE_HELP_VERSION = 'v11';
 
 var firebaseConfig = {
   apiKey: 'AIzaSyCTZbXBiBXQ84laGdunFtRPkyA5uCWfVvc',
@@ -100,6 +101,8 @@ var ROLE_HELP = {
       'After the alert, prepare near the named court so play can begin promptly.',
       'Game credit and the court timer begin only after the controller taps Start Game. A countdown shows when that court has a time limit.',
       'Use My Skill or Take a Break only when you are not on court or reserved Up Next.',
+      'Open My Partner in Players to request a fixed partner. A controller must approve; pending requests do not affect rotation. Either player can cancel a request.',
+      'Approved partners always play together and wait together if either is unavailable. They mix opponents, not teammates. Either partner can end the partnership only when both are off court and not Up Next.',
       'If you need to leave or take a break while Up Next, ask a controller to edit or remove your prepared assignment first.',
       'Use player and standings search in larger groups, and open Display Settings for larger text, high contrast, sound, or vibration preferences.',
       'Read the organizer’s announcement and Session Rules when they are provided.',
@@ -116,6 +119,7 @@ var ROLE_HELP = {
       'Active matches and Up Next lineups are shown separately on each court.',
       'Read court names, skill designations, teams, elapsed timers or countdowns, and status badges.',
       'Players shown Up Next are reserved and cannot be placed in another lineup.',
+      'Partner badges identify fixed teammates. If one partner is unavailable, both wait; partnership controls are intentionally unavailable in View Only.',
       'After a winner is recorded, the prepared lineup moves into the main court view and waits for Start Game.',
       'Use search for a large roster, open Live Activity only when you need it, and use Court Display for a fullscreen court board.',
       'Use Display Settings for larger text, high contrast, sound, or vibration preferences, and read Session Rules or announcements when provided.',
@@ -134,6 +138,10 @@ var ROLE_HELP = {
       'Use Prepare Courts & Up Next to fill idle courts first, then prepare one next lineup for each active court.',
       'Use Prepare Fair Next on one active court when its next lineup is empty.',
       'Use Build Next Manually to choose the exact four players and teams.',
+      'In Players, use Set Partners or review Partner Requests. Approve only when both players are off court and not Up Next. You may pair roster players without phones.',
+      'Fixed partners are selected together, including in the manual builder. Pairing takes priority over skill balance, but skill-designated courts remain strict. Mixed-level pairs need an Any court.',
+      'You cannot split a fixed pair with Replace or team swaps. Both partners must be unassigned before either partner or a controller ends the partnership. Remove Up Next first when needed.',
+      'Partners wait together if one takes a break or checks out. Fairness is the best possible within these constraints; fixed partners mix opponents instead of teammates.',
       'Edit or remove a prepared lineup while the current match continues.',
       'Prepared players are reserved and cannot be assigned, replaced, removed, checked out, or placed on break elsewhere.',
       'Record the current winner. An existing prepared lineup is promoted unchanged; if none exists, the app automatically prepares a fair next lineup when four eligible players are available.',
@@ -149,7 +157,7 @@ var ROLE_HELP = {
       'Use player and standings search, Court Display, display preferences, Session Rules, and announcements for larger sessions. Large Room Mode activates automatically at 50 players.',
       'Live Activity subscribes only while its tab is open. Each deliberate action has a unique intent, so Prepare → Remove → Prepare and Prepare → Undo → Prepare work normally.',
       'Only change the room while its status is Live. Syncing waits for your committed revision; Reconnecting keeps the last confirmed view, retries automatically, and offers Retry Now without requiring a refresh.',
-      'Undo preserves unrelated later check-ins by restoring only changed fields.',
+      'Undo restores changed fields, but cannot cross a later partnership change or player opt-out. Review the latest state if an undo is blocked.',
       'Organizer only: Undo, Reset All, Clear All Players, Reset Stats, and End Session.'
     ]
   }
@@ -339,9 +347,20 @@ function closeModal() {
   document.querySelector('.container').inert = false;
   document.getElementById('modalCloseBtn').disabled = true;
   modalOptions = null;
+  document.querySelector('.modal-card').removeAttribute('aria-busy');
   var returnFocus = modalReturnFocus;
   modalReturnFocus = null;
+  if (returnFocus && !document.contains(returnFocus)) returnFocus = (returnFocus.id && document.getElementById(returnFocus.id)) || document.getElementById('tab-' + activeTab);
   if (returnFocus && document.contains(returnFocus)) setTimeout(function () { returnFocus.focus(); }, 0);
+}
+
+function setModalPending(pending) {
+  if (modalOptions) {
+    if (pending) { modalOptions.previousClosable = modalOptions.closable; modalOptions.closable = false; }
+    else modalOptions.closable = modalOptions.previousClosable;
+  }
+  document.getElementById('modalCloseBtn').disabled = pending;
+  document.querySelector('.modal-card').setAttribute('aria-busy', String(pending));
 }
 
 function confirmAction(options) {
@@ -369,6 +388,7 @@ function confirmAction(options) {
       cancel.disabled = true;
       confirmButton.disabled = true;
       confirmButton.textContent = 'Working…';
+      setModalPending(true);
       document.querySelector('.modal-card').setAttribute('aria-busy', 'true');
       Promise.resolve().then(options.action).then(function (result) {
         document.querySelector('.modal-card').removeAttribute('aria-busy');
@@ -378,6 +398,7 @@ function confirmAction(options) {
         closeModal();
         resolve(result);
       }).catch(function (error) {
+        setModalPending(false);
         document.querySelector('.modal-card').removeAttribute('aria-busy');
         document.getElementById('confirmActionError').textContent = error.message || 'The action could not be completed.';
         cancel.disabled = false;
@@ -783,7 +804,12 @@ function loadLocalState() {
   try {
     var current = localStorage.getItem(LOCAL_KEY);
     if (current) {
-      var normalized = Engine.normalizeState(JSON.parse(current));
+      var stored = JSON.parse(current);
+      if (Number(stored.schemaVersion) > Engine.SCHEMA_VERSION) {
+        incompatibleGameVersion = true;
+        return Engine.createState(2);
+      }
+      var normalized = Engine.normalizeState(stored);
       localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
       return normalized;
     }
@@ -800,7 +826,7 @@ function loadLocalState() {
 }
 
 function saveLocalState() {
-  if (roomId) return;
+  if (roomId || incompatibleGameVersion) return;
   try { localStorage.setItem(LOCAL_KEY, JSON.stringify(S)); } catch (error) { console.warn('Could not save local game:', error); }
 }
 
@@ -1225,6 +1251,7 @@ function openControllerPlayerTools() {
       + '<div class="player-tools-grid">'
       + '<button class="btn ' + (player.notAvailable ? 'btn-primary' : 'btn-accent') + '" id="controllerAvailabilityBtn" ' + (disabled || assigned ? 'disabled' : '') + '>' + (player.notAvailable ? '✓ I’m Ready' : '⏸ Take a Break') + '</button>'
       + '<button class="btn btn-ghost" id="controllerSkillBtn" ' + (disabled || assigned ? 'disabled' : '') + '>⭐ Edit My Skill</button>'
+      + '<button class="btn btn-ghost" id="controllerPartnerBtn" ' + (disabled ? 'disabled' : '') + '>🤝 My Partner</button>'
       + '<button class="btn btn-ghost alert-status-' + esc(alertStatus) + '" id="controllerAlertsBtn" ' + (alertStatus === 'enabling' ? 'disabled' : '') + '>' + esc(alertButtonCopy()) + '</button>'
       + '<button class="btn btn-ghost" id="controllerChangePlayerBtn" ' + (disabled || assigned ? 'disabled' : '') + '>⇄ Change Player</button>'
       + '<button class="btn btn-danger" id="controllerStopPlayingBtn" ' + (disabled || assigned ? 'disabled' : '') + '>Stop Playing</button>'
@@ -1234,6 +1261,7 @@ function openControllerPlayerTools() {
   });
   document.getElementById('controllerAvailabilityBtn').onclick = function () { closeModal(); toggleMyAvailability(); };
   document.getElementById('controllerSkillBtn').onclick = function () { closeModal(); openSkillPicker(player.id); };
+  document.getElementById('controllerPartnerBtn').onclick = function () { closeModal(); openPartnerPicker(player.id); };
   document.getElementById('controllerAlertsBtn').onclick = function () { closeModal(); enablePlayerAlerts(); };
   document.getElementById('controllerChangePlayerBtn').onclick = function () { closeModal(); openControllerParticipationPicker(); };
   document.getElementById('controllerStopPlayingBtn').onclick = function () { closeModal(); stopControllerPlaying(); };
@@ -1366,6 +1394,11 @@ function applyRoomSnapshot(parsed) {
   }
   var previousState = S;
   roomData = parsed.data;
+  if (roomData.state && Number(roomData.state.schemaVersion) > Engine.SCHEMA_VERSION) {
+    incompatibleGameVersion = true;
+    renderSyncRecovery(); syncControlState();
+    return;
+  }
   var nextState = RoomData.stateFromRoom(roomData, Engine);
   detectNewPlayerAssignment(previousState, nextState, roomData.revision);
   S = nextState;
@@ -1390,10 +1423,17 @@ function retryRoomSync() {
 function renderSyncRecovery() {
   var bar = document.getElementById('syncRecoveryBar');
   if (!bar) return;
-  var degraded = !!roomId && ['reconnecting', 'error'].indexOf(syncStatus) !== -1;
+  var degraded = incompatibleGameVersion || (!!roomId && ['reconnecting', 'error'].indexOf(syncStatus) !== -1);
   bar.hidden = !degraded;
   document.body.classList.toggle('sync-degraded', degraded);
   if (!degraded) return;
+  if (incompatibleGameVersion) {
+    document.getElementById('syncRecoveryTitle').textContent = 'Update App required';
+    document.getElementById('syncRecoveryCopy').textContent = 'This game uses a newer format. Your saved game is protected until you update.';
+    var update = document.getElementById('syncRetryBtn');
+    update.textContent = 'Update App'; update.disabled = !navigator.onLine; update.onclick = updateAppToLatest;
+    return;
+  }
   document.getElementById('syncRecoveryTitle').textContent = syncStatus === 'error' ? 'Live updates need attention' : 'Reconnecting to live game…';
   document.getElementById('syncRecoveryCopy').textContent = syncLastConfirmedAt
     ? 'Last confirmed ' + new Date(syncLastConfirmedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '. Your last valid game remains visible.'
@@ -1548,12 +1588,17 @@ function isUncertainMutationError(error) {
 
 function runAction(type, reducer, options) {
   options = options || {};
+  if (incompatibleGameVersion) { showToast('Update App before changing this game.'); return Promise.resolve({ changed: false, reason: 'Update App required.' }); }
   if (!roomId) {
-    var localResult = reducer(S);
+    var localNext = Engine.clone(S);
+    var localResult = reducer(localNext);
     if (!localResult || localResult.changed === false) {
       if (localResult && localResult.reason) showToast(localResult.reason);
       return Promise.resolve(localResult);
     }
+    var localCheck = Engine.validatePartnerState(localNext);
+    if (!localCheck.valid) { showToast(localCheck.reason); return Promise.resolve({ changed: false, reason: localCheck.reason }); }
+    S = localNext;
     saveLocalState();
     renderAll();
     if (localResult.message) showToast(localResult.message);
@@ -1563,7 +1608,7 @@ function runAction(type, reducer, options) {
   if (!navigator.onLine || !syncCanMutate) { showToast('Wait for Live status before changing the shared game.'); return Promise.resolve(null); }
   if (!roomData || roomData.status !== 'active') { showToast('This shared session is read-only.'); return Promise.resolve(null); }
   if (accessMode === 'viewer' && !isOrganizer) { showToast('This is a view-only link.'); return Promise.resolve(null); }
-  if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only change your own availability and skill level.'); return Promise.resolve(null); }
+  if (accessMode === 'player' && !isOrganizer && !options.selfService) { showToast('Player check-in can only manage your own player tools.'); return Promise.resolve(null); }
   if (options.hostOnly && !isOrganizer) { showToast('Only the organizer can do that.'); return Promise.resolve(null); }
 
   var eventRef = fbDb.collection('roomEvents').doc();
@@ -1595,6 +1640,9 @@ function runAction(type, reducer, options) {
       var beforeState = RoomData.stateFromRoom(data, Engine);
       var nextState = Engine.clone(beforeState);
       var result = reducer(nextState);
+      if ((nextState.partnershipRevision || 0) < (beforeState.partnershipRevision || 0)) nextState.partnershipRevision = beforeState.partnershipRevision + 1;
+      var pairCheck = Engine.validatePartnerState(nextState);
+      if (!pairCheck.valid) result = { changed: false, reason: pairCheck.reason };
       resultForMessage = result;
       if (!result || result.changed === false) {
         var logicalError = new Error((result && result.reason) || 'Nothing changed.');
@@ -1630,6 +1678,7 @@ function runAction(type, reducer, options) {
         actorUid: currentUser.uid,
         actorName: controllerName,
         actionId: actionId,
+        partnershipRevision: nextState.partnershipRevision || 0,
         createdAt: FieldValue.serverTimestamp(),
         expiresAt: eventExpiry()
       };
@@ -1639,6 +1688,9 @@ function runAction(type, reducer, options) {
     });
   }).then(function (revision) {
     committedRevision = Number(revision) || 0;
+    // Joining may check in a player before the listener exists. Never replay the
+    // pre-check-in snapshot: it would incorrectly clear the newly linked identity.
+    if (!roomSync) initialRoomServerSnapshot = null;
     if (roomSync) roomSync.awaitRevision(committedRevision);
     if (wasDeduplicated) showToast('That action was already applied.');
     else if (resultForMessage && resultForMessage.message) showToast(resultForMessage.message);
@@ -1648,7 +1700,7 @@ function runAction(type, reducer, options) {
     if (error && error.code === 'action-precondition') {
       if (roomSync) roomSync.cancelMutation();
       showToast(error.message || 'Nothing changed.');
-      return null;
+      return options.returnFailure ? { changed: false, reason: error.message || 'Nothing changed.' } : null;
     }
     if (!navigator.onLine) {
       showToast('Connection was lost before the update could be confirmed.');
@@ -1677,6 +1729,7 @@ function runAction(type, reducer, options) {
     inFlightActionKeys.delete(inFlightKey);
     sharedBusy = false;
     renderSessionCard();
+    renderPlayerTools();
     syncControlState();
   });
 }
@@ -1739,6 +1792,8 @@ function removePlayer(index) {
       var target = state.players.find(function (item) { return item.id === player.id; });
       if (!target || Engine.lockedIds(state).indexOf(target.id) !== -1) return { changed: false, reason: 'Player is no longer removable.' };
       state.players = state.players.filter(function (item) { return item.id !== target.id; });
+      if (Engine.partnerRecord(state, target.id) || Engine.partnerRecord(state, target.id, true)) state.partnershipRevision += 1;
+      Engine.normalizePartnerships(state);
       return { changed: true, message: target.name + ' removed.', summary: 'Removed player ' + target.name };
     }); }
   });
@@ -2034,13 +2089,24 @@ function openManualMatchBuilder(index) {
   function selection() { return selects.map(function (select) { return select.value; }); }
   function validate() {
     var chosen = selection();
-    var valid = chosen.every(Boolean) && new Set(chosen).size === 4;
+    var pairCheck = Engine.validatePartnerLineup(S, chosen.slice(0, 2), chosen.slice(2, 4));
+    var valid = chosen.every(Boolean) && new Set(chosen).size === 4 && pairCheck.valid;
     stage.disabled = !valid;
     document.getElementById('manualBuilderNote').textContent = valid
       ? 'Ready to prepare. No game credit is added yet.'
-      : chosen.every(Boolean) ? 'Each player can be selected only once.' : 'Choose four different players.';
+      : !pairCheck.valid ? pairCheck.reason : chosen.every(Boolean) ? 'Each player can be selected only once.' : 'Choose four different players.';
   }
-  selects.forEach(function (select) { select.addEventListener('change', validate); });
+  selects.forEach(function (select, slotIndex) { select.addEventListener('change', function () {
+    var partner = Engine.partnerId(S, select.value);
+    var teammateIndex = slotIndex % 2 === 0 ? slotIndex + 1 : slotIndex - 1;
+    if (partner) {
+      selects.forEach(function (other, otherIndex) {
+        if (otherIndex !== slotIndex && otherIndex !== teammateIndex && (other.value === select.value || other.value === partner)) other.value = '';
+      });
+      selects[teammateIndex].value = partner;
+    } else if (Engine.partnerId(S, selects[teammateIndex].value)) selects[teammateIndex].value = '';
+    validate();
+  }); });
   validate();
   stage.onclick = function () {
     var chosen = selection();
@@ -2131,6 +2197,8 @@ function executeSwap(courtIndex, targetTeam, targetIndex) {
     var targetId = destinationTeam[targetIndex];
     sourceTeam[source.playerIndex] = targetId;
     destinationTeam[targetIndex] = sourceId;
+    var pairCheck = Engine.validatePartnerLineup(state, court.teamA, court.teamB);
+    if (!pairCheck.valid) return { changed: false, reason: pairCheck.reason };
     var sourceName = Engine.playerName(state, sourceId);
     var targetName = Engine.playerName(state, targetId);
     return { changed: true, message: sourceName + ' ⇄ ' + targetName + ' swapped teams.', summary: 'Swapped ' + sourceName + ' and ' + targetName };
@@ -2142,7 +2210,8 @@ function openReplacementPicker(courtIndex, team, playerIndex) {
   if (!court || court.status !== 'playing') return;
   var outgoingId = (team === 'A' ? court.teamA : court.teamB)[playerIndex];
   var outgoingName = Engine.playerName(S, outgoingId);
-  var ids = Engine.eligibleIdsForCourt(S, courtIndex);
+  if (Engine.partnerId(S, outgoingId)) { showToast('A single-player replacement cannot split a fixed partnership. Finish the match before ending the partnership.'); return; }
+  var ids = Engine.eligibleIdsForCourt(S, courtIndex).filter(function (id) { return !Engine.partnerId(S, id); });
   if (!ids.length) { showToast('No available ' + Engine.skillGroupLabel(court.skillGroup) + ' players can replace ' + outgoingName + '.'); return; }
   ids.sort(function (a, b) {
     var pa = Engine.playerById(S, a), pb = Engine.playerById(S, b);
@@ -2507,9 +2576,7 @@ function undoLastAction() {
         var target = eventSnapshot.data();
         if (!target.beforeState && !Array.isArray(target.undoPatch)) throw new Error('Undo data is no longer available.');
         var currentState = RoomData.stateFromRoom(data, Engine);
-        var restoredState = Array.isArray(target.undoPatch)
-          ? Engine.normalizeState(RoomData.applyUndoPatch(currentState, target.undoPatch))
-          : Engine.normalizeState(target.beforeState);
+        var restoredState = RoomData.restoreUndoState(currentState, target, Engine);
         stack.pop();
         var nextRevision = (Number(data.revision) || 0) + 1;
         transaction.update(roomRef, {
@@ -2759,12 +2826,156 @@ function renderSessionInfo() {
   element.innerHTML = '<div class="card session-info-card"><div class="announcement-banner" role="status"><strong>📣</strong><span>' + esc(announcement) + '</span></div></div>';
 }
 
+function partnershipActor() {
+  return { uid: currentUser && currentUser.uid, playerId: linkedPlayerId, isController: isFullController() };
+}
+
+function partnerStatusText(player) {
+  var otherId = Engine.partnerId(S, player.id);
+  if (otherId) {
+    var other = Engine.playerById(S, otherId);
+    var waiting = !player.notAvailable && Engine.lockedIds(S).indexOf(player.id) === -1
+      && (other.notAvailable || Engine.lockedIds(S).indexOf(otherId) !== -1);
+    return 'Partner: ' + Engine.playerName(S, otherId) + (waiting ? ' · Waiting for partner' : '');
+  }
+  var request = Engine.partnerRecord(S, player.id, true);
+  return request ? 'Pending approval: ' + Engine.playerName(S, request.playerIds.find(function (id) { return id !== player.id; })) : '';
+}
+
+function changePartnership(action, a, b) {
+  var labels = { request: 'Requested partners', approve: 'Approved partners', create: 'Set partners', decline: 'Declined partner request', cancel: 'Cancelled partner request', end: 'Ended partnership' };
+  return runAction('partner_' + action, function (state) {
+    var result = Engine.partnerAction(state, action, a, b, partnershipActor());
+    if (result.changed) {
+      result.message = labels[action] + ': ' + result.pair.playerIds.map(function (id) { return Engine.playerName(state, id); }).join(' + ');
+      result.summary = result.message;
+    }
+    return result;
+  }, { selfService: true, returnFailure: true, undoable: ['approve', 'create'].indexOf(action) !== -1 });
+}
+
+function confirmPartnership(action, a, b) {
+  var record = Engine.partnerRecord(S, a, action !== 'end');
+  if (!record || record.id !== b) { showToast('That partnership changed. Reopen My Partner.'); return; }
+  var names = record.playerIds.map(function (id) { return Engine.playerName(S, id); }).join(' + ');
+  var labels = { approve: 'Approve Partners', decline: 'Decline Request', cancel: 'Cancel Request', end: 'End Partnership' };
+  return confirmAction({
+    title: labels[action] + ' · ' + names,
+    copy: action === 'approve' ? 'These players will always play together. Both must be off court and not Up Next.'
+      : action === 'end' ? 'Both players return to individual rotation. Both must be off court and not Up Next.' : 'This pending request will be removed. Rotation will not change.',
+    confirmLabel: labels[action], danger: action !== 'approve',
+    action: function () { return changePartnership(action, a, b); }
+  });
+}
+
+function openPartnerPicker(playerId) {
+  var controller = isFullController();
+  var player = Engine.playerById(S, playerId);
+  if (!controller && (!player || player.id !== linkedPlayerId || !currentUser || player.checkedInUid !== currentUser.uid)) return;
+  var pair = player && Engine.partnerRecord(S, player.id);
+  var request = player && Engine.partnerRecord(S, player.id, true);
+  var modal = openModal({
+    title: player ? 'My Partner · ' + player.name : 'Set Partners',
+    copy: pair ? partnerStatusText(player) : request ? partnerStatusText(player)
+      : player ? (controller ? 'Select a partner to approve. Both players must be unassigned.' : 'Select a partner and send a request for controller approval.')
+      : 'Choose the first roster player, then their partner. Players without phones can be paired here.',
+    body: '<div class="field-help">Approved partners always play together and wait together. Mixed-level pairs need an Any court. Fairness and balance apply within these constraints.</div>'
+      + ((!pair && !request) ? '<label class="modal-label" for="partnerSearch">Search players</label><div class="search-toolbar"><input class="modal-field" id="partnerSearch" type="search" autocomplete="off" placeholder="Player name"><button class="btn btn-ghost" id="partnerSearchClear" type="button" aria-label="Clear player search" hidden>✕</button></div><div class="picker-list" id="partnerOptions"></div>' : '')
+      + '<div id="partnerError" class="modal-inline-error" role="alert"></div>',
+    initialFocus: !pair && !request ? '#partnerSearch' : null
+  });
+  function actionButton(label, action, record) {
+    var button = document.createElement('button');
+    button.className = 'btn btn-ghost'; button.type = 'button'; button.textContent = label;
+    button.onclick = function () { confirmPartnership(action, player.id, record.id); };
+    modal.actions.appendChild(button);
+  }
+  if (pair) {
+    var assigned = pair.playerIds.some(function (id) { return Engine.lockedIds(S).indexOf(id) !== -1; });
+    if (assigned) modal.body.querySelector('#partnerError').textContent = 'Finish the active match or remove Up Next before ending this partnership.';
+    else actionButton('End Partnership', 'end', pair);
+  } else if (request) {
+    if (controller) actionButton('Approve Partners', 'approve', request);
+    actionButton(controller ? 'Decline Request' : 'Cancel Request', controller ? 'decline' : 'cancel', request);
+  } else {
+    var input = modal.body.querySelector('#partnerSearch');
+    var clear = modal.body.querySelector('#partnerSearchClear');
+    var list = modal.body.querySelector('#partnerOptions');
+    function renderOptions() {
+      var query = input.value.trim().toLowerCase();
+      clear.hidden = !input.value;
+      list.replaceChildren();
+      var candidates = S.players.filter(function (candidate) {
+        return candidate.id !== playerId && !Engine.partnerRecord(S, candidate.id) && !Engine.partnerRecord(S, candidate.id, true)
+          && (!query || candidate.name.toLowerCase().indexOf(query) !== -1);
+      });
+      if (!candidates.length) { list.textContent = 'No unpaired players match. Cancel an existing request or end a partnership first.'; return; }
+      candidates.forEach(function (candidate) {
+        var button = document.createElement('button');
+        button.className = 'picker-option'; button.type = 'button';
+        button.textContent = candidate.name + ' · ' + Engine.skillLevelLabel(candidate.skillRating) + ' · ' + candidate.games + (candidate.games === 1 ? ' game' : ' games');
+        button.onclick = function () {
+          if (!player) { openPartnerPicker(candidate.id); return; }
+          var action = controller ? 'create' : 'request';
+          list.querySelectorAll('button').forEach(function (item) { item.disabled = true; });
+          input.disabled = true; clear.disabled = true;
+          setModalPending(true);
+          modal.body.setAttribute('aria-busy', 'true');
+          changePartnership(action, player.id, candidate.id).then(function (result) {
+            setModalPending(false);
+            modal.body.removeAttribute('aria-busy');
+            if (result && result.changed) closeModal();
+            else {
+              input.disabled = false; clear.disabled = false;
+              renderOptions();
+              modal.body.querySelector('#partnerError').textContent = result && result.reason || 'Could not save. Wait for Live status and try again.';
+            }
+          });
+        };
+        list.appendChild(button);
+      });
+    }
+    input.oninput = renderOptions;
+    clear.onclick = function () { input.value = ''; renderOptions(); input.focus(); };
+    renderOptions();
+  }
+}
+
+function renderPartnerships(disabled) {
+  var element = document.getElementById('partnershipSection');
+  if (!element) return;
+  element.replaceChildren();
+  if (!isFullController()) return;
+  var card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = '<div class="card-title"><span>🤝 Session Partners</span><button class="btn btn-ghost" type="button" id="setPartnersBtn">Set Partners</button></div><p class="field-help">Approve fixed teammates here. Both wait if one cannot play.</p><div class="picker-list" id="partnerRequestList"></div>';
+  element.appendChild(card);
+  var create = card.querySelector('#setPartnersBtn'); create.disabled = disabled;
+  create.onclick = function () { openPartnerPicker(null); };
+  var list = card.querySelector('#partnerRequestList');
+  if (!(S.partnerRequests || []).length) { list.textContent = 'No partner requests pending.'; return; }
+  var title = document.createElement('h3'); title.textContent = 'Partner Requests (' + S.partnerRequests.length + ')'; list.appendChild(title);
+  S.partnerRequests.forEach(function (request) {
+    var row = document.createElement('div'); row.className = 'partner-request';
+    var label = document.createElement('strong');
+    label.textContent = request.playerIds.map(function (id) { return Engine.playerName(S, id); }).join(' + ');
+    row.appendChild(label);
+    ['approve', 'decline'].forEach(function (action) {
+      var button = document.createElement('button'); button.className = 'btn btn-ghost'; button.type = 'button';
+      button.textContent = action === 'approve' ? 'Approve' : 'Decline'; button.disabled = disabled;
+      button.onclick = function () { confirmPartnership(action, request.playerIds[0], request.id); };
+      row.appendChild(button);
+    });
+    list.appendChild(row);
+  });
+}
+
 function renderPlayerTools() {
   var element = document.getElementById('playerToolsSection');
   if (!element) return;
   var player = linkedPlayerId ? Engine.playerById(S, linkedPlayerId) : null;
   var live = !roomId || (roomSync ? roomSync.getState().canMutate : syncStatus === 'live');
-  var disabled = !live || sharedBusy || (roomData && roomData.status !== 'active');
+  var disabled = incompatibleGameVersion || !live || sharedBusy || (roomData && roomData.status !== 'active');
+  renderPartnerships(disabled);
   var tools = '';
   if (roomId && isFullController()) {
     tools = '<button class="btn ' + (player ? 'btn-accent' : 'btn-primary') + '" onclick="openControllerPlayerTools()" ' + (disabled ? 'disabled' : '') + '>'
@@ -2774,7 +2985,9 @@ function renderPlayerTools() {
       + (player ? '<button class="btn btn-ghost" onclick="openSkillPicker(\'' + esc(player.id) + '\')" ' + (disabled ? 'disabled' : '') + '>⭐ My Skill · ' + esc(Engine.skillLevelLabel(player.skillRating)) + '</button>' : '')
       + '<button class="btn btn-ghost alert-status-' + esc(alertStatus) + '" onclick="enablePlayerAlerts()" ' + (alertStatus === 'enabling' ? 'disabled' : '') + '>' + esc(alertButtonCopy()) + '</button>';
   }
+  if (player && accessMode !== 'viewer') tools += '<button class="btn btn-ghost" onclick="openPartnerPicker(\'' + esc(player.id) + '\')" ' + (disabled ? 'disabled' : '') + '>🤝 My Partner</button>';
   element.innerHTML = tools ? '<div class="card"><div class="card-title"><span class="card-title-left">🎾 My Player</span></div><div class="session-action-grid">' + tools + '</div>'
+    + (player && partnerStatusText(player) ? '<p class="field-help">' + esc(partnerStatusText(player)) + '</p>' : '')
     + (accessMode === 'player' && !isOrganizer ? '<div class="free-alert-note">Free alerts work while this app is open or running in the background. A fully closed app cannot receive alerts.</div>' : '') + '</div>' : '';
 }
 
@@ -2858,7 +3071,9 @@ function renderPlayerList() {
     var availability = !isFullController() || isLocked ? '' : '<button class="btn-na' + (player.notAvailable ? ' is-na' : '') + '" onclick="toggleNotAvailable(' + index + ')">' + (player.notAvailable ? '✅ Back In' : '⛔ NA') + '</button>';
     var remove = isFullController() ? '<button class="btn btn-ghost btn-sm" ' + (isLocked ? 'disabled data-force-disabled' : 'onclick="removePlayer(' + index + ')"') + '>✕</button>' : '';
     return '<div class="player-item' + (isLocked ? ' locked' : '') + (player.notAvailable ? ' not-avail' : '') + '">'
-      + '<span class="player-name">' + (index + 1) + '. ' + esc(player.name) + '</span>'
+      + '<span class="player-name">' + (index + 1) + '. ' + esc(player.name)
+      + (partnerStatusText(player) ? '<small class="partner-status">🤝 ' + esc(partnerStatusText(player)) + '</small>' : '')
+      + (isFullController() ? '<button class="btn btn-ghost btn-sm" onclick="openPartnerPicker(\'' + esc(player.id) + '\')">Partners</button>' : '') + '</span>'
       + '<span class="player-meta">' + badges + skill + availability + '</span>' + remove + '</div>';
   }).join('') + (visible.length < filtered.length
     ? '<button class="btn btn-ghost list-more" onclick="showMorePlayers()">Show ' + Math.min(LARGE_ROOM_PAGE_SIZE, filtered.length - visible.length) + ' More Players</button>' : '');
@@ -2872,6 +3087,7 @@ function renderMatchmakingMode() {
   if (help) help.textContent = S.matchmakingMode === 'balanced'
     ? 'Keeps fair game counts first, prefers even skill compositions, then balances teams and expands matchup variety.'
     : 'Prioritizes fair game counts, then new partners and opponents before waiting-time tie-breakers.';
+  if (help && (S.partnerships || []).length) help.textContent += ' Fixed partners always stay together; fairness and balance apply within legal pairings.';
   var readOnly = document.getElementById('matchmakingReadOnly');
   if (readOnly) readOnly.textContent = S.matchmakingMode === 'balanced' ? '⭐ Skill Balanced' : '🤝 Social Fair';
 }
@@ -3124,7 +3340,7 @@ function syncHostControls() {
 
 function syncControlState() {
   var confirmedLive = !roomId || (roomSync ? roomSync.getState().canMutate : syncStatus === 'live');
-  var unavailable = !!roomId && (!confirmedLive || sharedBusy || !roomData || roomData.status !== 'active');
+  var unavailable = incompatibleGameVersion || (!!roomId && (!confirmedLive || sharedBusy || !roomData || roomData.status !== 'active'));
   var roleReadOnly = !!roomId && !isFullController();
   ['playerCard', 'courtSettingsCard', 'actionControls', 'courtsSection'].forEach(function (id) {
     var root = document.getElementById(id);

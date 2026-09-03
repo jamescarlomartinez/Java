@@ -40,7 +40,13 @@ A mobile-first PWA for fair social pickleball rotation. Personal games remain in
 
 The release keeps the current room document as the source of truth so existing rooms and links continue to work. New rooms add optional `dataLayoutVersion` and bounded `recentActionIds` fields. This is preparation for a future per-court/player storage layout, not a breaking migration.
 
-## Local verification
+## v3.13.0 fixed partners
+
+In **Players → My Partner**, a checked-in player requests a teammate. Controllers approve requests or use **Set Partners** for roster players without phones. Approved pairs always play together, including manual games and Up Next; either partner can opt out only when both are unassigned. Breaks/checkouts make both wait. Fixed pairs take priority over skill balance, but mixed-level pairs require Any courts. Solo controllers can set pairs locally.
+
+Schema 11 preserves existing matches and statistics. Firestore rules prevent older app writers from downgrading an upgraded room. The room still uses the existing trusted-link permission model; no new paid service or collection is introduced. Partnership changes create an undo boundary so a later player opt-out cannot be silently reversed.
+
+### Automated verification
 
 ```bash
 npm install
@@ -49,6 +55,8 @@ npm run test:rules
 ```
 
 The rules test requires Java 11+ because the Firebase Firestore emulator is Java-based.
+
+The browser regression uses only emulators and three isolated browser contexts. Start a static server on `127.0.0.1:4173` and Firebase Auth/Firestore emulators using project `demo-pickleball-partners`. Set `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`, run `node tests/seed-partner-browser.cjs`, then use `playwright-cli run-code --filename=tests/browser-partners.js` in an open CLI browser session. It covers requests, approvals, manual autofill, reservation protection, results, player opt-out, three-device sync, offline recovery, responsive modals, and focus restoration. Fixtures never use the production Firebase project.
 
 ## Firebase release setup
 

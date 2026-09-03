@@ -940,7 +940,7 @@ test('schema-10 migration leaves existing active games unlimited and preserves t
     timeLimitMinutes: 15, activeTimeLimitMinutes: 15, deadlineAt: 905000
   });
   const normalized = Engine.normalizeState(old);
-  assert.equal(normalized.schemaVersion, 10);
+  assert.equal(normalized.schemaVersion, Engine.SCHEMA_VERSION);
   assert.equal(normalized.courtStates[0].status, 'playing');
   assert.deepEqual(normalized.courtStates[0].teamA, ['p0', 'p1']);
   assert.equal(normalized.courtStates[0].startedAt, 5000);
@@ -1057,7 +1057,10 @@ test('strict-court shortages return a structured eligibility breakdown', () => {
     upNext: 0,
     takingBreak: 1,
     unconfirmed: 1,
-    skillMismatch: 2
+    skillMismatch: 2,
+    partnerUnavailable: 0,
+    partnerReserved: 0,
+    partnerSkillMismatch: 0
   });
 });
 

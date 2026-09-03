@@ -92,7 +92,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v29-tabbed-live-sync/);
+  assert.match(serviceWorker, /pickleball-v30-fixed-partners/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -151,7 +151,7 @@ test('each shared role has context help and QR access summaries', () => {
   assert.match(app, /❓ How to Use/);
   assert.match(app, /pickleballHelpSeen_/);
   assert.match(app, /accessRoleSummary/);
-  assert.match(app, /var ROLE_HELP_VERSION = 'v10'/);
+  assert.match(app, /var ROLE_HELP_VERSION = 'v11'/);
   assert.match(app, /Prepare Courts & Up Next/);
   assert.match(app, /automatically prepares a fair next lineup/);
   assert.match(app, /ask a controller to edit or remove your prepared assignment/i);
@@ -228,7 +228,7 @@ test('shared actions use intent deduplication and compact backwards-compatible u
   assert.match(app, /var inFlightKey = type \+ '\\|' /);
   assert.doesNotMatch(app, /function stableActionId/);
   assert.match(app, /eventData\.undoPatch = RoomData\.createUndoPatch/);
-  assert.match(app, /RoomData\.applyUndoPatch\(currentState, target\.undoPatch\)/);
+  assert.match(app, /RoomData\.restoreUndoState\(currentState, target, Engine\)/);
   assert.match(app, /target\.beforeState/);
   assert.doesNotMatch(app, /beforeState: beforeState/);
 });
@@ -309,4 +309,23 @@ test('design context and UX contract are release artifacts', () => {
   assert.doesNotMatch(html, /id="legacyApp"/);
   assert.match(html, /id="playerSearchClear"/);
   assert.match(html, /id="standingsSearchClear"/);
+});
+
+test('fixed partners reuse player tools, searchable modal, help, and shared action protections', () => {
+  assert.match(html, /id="partnershipSection"/);
+  assert.match(app, /function openPartnerPicker/);
+  assert.match(app, /id="partnerSearchClear"/);
+  assert.match(app, /Partner Requests/);
+  assert.match(app, /My Partner/);
+  assert.match(app, /Engine\.partnerAction/);
+  assert.match(app, /Engine\.validatePartnerLineup/);
+  assert.match(app, /Engine\.validatePartnerState/);
+  assert.match(app, /if \(!roomSync\) initialRoomServerSnapshot = null/);
+  assert.match(app, /function setModalPending/);
+  assert.match(app, /incompatibleGameVersion/);
+  for (const role of ['player', 'viewer', 'controller']) {
+    const start = app.indexOf('  ' + role + ': {');
+    const end = app.indexOf('\n  }', start);
+    assert.match(app.slice(start, end), /[Pp]artner/);
+  }
 });
