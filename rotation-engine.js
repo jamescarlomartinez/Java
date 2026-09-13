@@ -767,7 +767,9 @@
         }, 0);
         var teamASkill = partition[0].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
         var teamBSkill = partition[1].reduce(function (sum, id) { return sum + playerSkillWeight(playerById(state, id)); }, 0);
-        var skillGap = state.matchmakingMode === 'balanced' ? Math.abs(teamASkill - teamBSkill) : 0;
+        // Every automatic rotation balances the selected four across teams. Skill Balanced
+        // additionally prefers even four-player compositions in skillCompositionPenalty().
+        var skillGap = Math.abs(teamASkill - teamBSkill);
         var teammatePairCounts = [
           partnerId(state, partition[0][0]) === partition[0][1] ? 0 : state.teammateCounts[pairKey(partition[0][0], partition[0][1])] || 0,
           partnerId(state, partition[1][0]) === partition[1][1] ? 0 : state.teammateCounts[pairKey(partition[1][0], partition[1][1])] || 0
@@ -852,7 +854,7 @@
       partition[0].forEach(function (a) {
         partition[1].forEach(function (b) { opponentRepeats += state.opponentCounts[pairKey(a, b)] || 0; });
       });
-      var score = [state.matchmakingMode === 'balanced' ? Math.abs(teamASkill - teamBSkill) : 0, teammateRepeats, opponentRepeats];
+      var score = [Math.abs(teamASkill - teamBSkill), teammateRepeats, opponentRepeats];
       if (!best || compareTuple(score, best.score) < 0) {
         best = { teamA: partition[0], teamB: partition[1], score: score, fallback: true };
       }

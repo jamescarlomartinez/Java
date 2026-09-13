@@ -14,6 +14,8 @@ Recording a winner always records the result first. A prepared lineup is promote
 
 Strict skill courts remain strict. Generation failures identify the affected court, eligible count, and unavailable-category breakdown, including partners unavailable, reserved, or skill-ineligible. Selection uses complete partner units; four individually available people do not guarantee a legal match. A legal four-player combination must produce a deterministic fallback if normal scoring cannot return one.
 
+Every automatic rotation balances the selected players across teams in both Social Fair and Skill Balanced modes. When the selected four contain two confirmed Beginners and two confirmed Non-Beginners, each team receives one of each. Odd skill mixes use the closest team balance, while approved fixed partners stay together. Skill Balanced additionally prefers even four-player skill compositions after game-count fairness. Manual lineups and controller-selected replacements remain controller choices.
+
 ## Role contract
 
 - Organizer: all controller operations plus Undo, resets, Clear All, and End Session.
