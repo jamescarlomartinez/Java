@@ -34,7 +34,7 @@ test('QR library loads before the application and rotation-style controls are pr
   assert.ok(html.indexOf('./vendor/qrcode.js') < html.indexOf('./app.js'));
   assert.match(html, /data-matchmaking-mode="social"/);
   assert.match(html, /data-matchmaking-mode="balanced"/);
-  assert.match(app, /new partners and opponents before waiting-time tie-breakers/);
+  assert.match(app, /balances the selected players across teams/);
 });
 
 test('standings render before history and live activity', () => {
@@ -92,7 +92,7 @@ test('footer exposes the current version and a forced update control', () => {
 });
 
 test('service worker bypasses stale caches for releases and app code', () => {
-  assert.match(serviceWorker, /pickleball-v31-raised-tabs/);
+  assert.match(serviceWorker, /pickleball-v32-universal-team-balance/);
   assert.match(serviceWorker, /version\.json/);
   assert.match(serviceWorker, /cache:\s*'reload'/);
   assert.match(serviceWorker, /cache:\s*'no-store'/);
@@ -151,11 +151,11 @@ test('each shared role has context help and QR access summaries', () => {
   assert.match(app, /❓ How to Use/);
   assert.match(app, /pickleballHelpSeen_/);
   assert.match(app, /accessRoleSummary/);
-  assert.match(app, /var ROLE_HELP_VERSION = 'v11'/);
+  assert.match(app, /var ROLE_HELP_VERSION = 'v12'/);
   assert.match(app, /Prepare Courts & Up Next/);
   assert.match(app, /automatically prepares a fair next lineup/);
   assert.match(app, /ask a controller to edit or remove your prepared assignment/i);
-  assert.match(app, /two-and-two mixed games and all-one-level games as equally balanced/i);
+  assert.match(app, /every automatic rotation places one Beginner and one Non-Beginner on each team/i);
   assert.match(app, /one-and-three skill mix/i);
   assert.match(html, /\.help-steps/);
 });
